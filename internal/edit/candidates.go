@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"younithm/internal/artwork"
@@ -105,8 +106,10 @@ LIMIT ?5`
 
 // MergeSuggestions lists entities that may be the same as id: ones holding the
 // same catalogue id, then ones that go by one of its names (stored, display,
-// catalogue or scrobbled spelling). Same-named tracks and albums must also
-// share an artist, so a common title like "Intro" does not flood the list.
+// catalogue or scrobbled spelling), then tracks whose title differs only by a
+// suffix that says where the track appeared (see baseTitle). Same-named tracks
+// and albums must also share an artist, so a common title like "Intro" does not
+// flood the list.
 func MergeSuggestions(ctx context.Context, db Querier, kind string, id int64, limit int) ([]Candidate, error) {
 	base, ok := candidateSQL[kind]
 	if !ok {
@@ -118,30 +121,123 @@ func MergeSuggestions(ctx context.Context, db Querier, kind string, id int64, li
 	}
 	js, _ := json.Marshal(names)
 	col := "x." + nameCol[kind]
-	sameName := `(lower(` + col + `) IN (SELECT value FROM json_each(?2)) OR lower(COALESCE(x.display_name, '')) IN (SELECT value FROM json_each(?2))
-  OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND lower(n.name) IN (SELECT value FROM json_each(?2))))`
+	anyName := func(cond string) string { // cond tests the placeholder {v} against one of x's names
+		return `(` + strings.ReplaceAll(cond, "{v}", "lower("+col+")") + ` OR ` + strings.ReplaceAll(cond, "{v}", "lower(COALESCE(x.display_name, ''))") + `
+  OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND ` + strings.ReplaceAll(cond, "{v}", "lower(n.name)") + `))`
+	}
+	sameName := anyName(`{v} IN (SELECT value FROM json_each(?2))`)
 	sharesArtist := "1"
+	similar, bases := "0", []string{}
 	switch kind {
 	case KindRecording:
 		sharesArtist = `EXISTS (SELECT 1 FROM recording_artist a1 JOIN recording_artist a2 ON a2.artist_id = a1.artist_id
   WHERE a1.recording_id = ?1 AND a2.recording_id = x.id)`
+		bases = baseTitles(names)
+		if len(bases) > 0 {
+			// A rough net (same base, or base plus any suffix); kept rows are
+			// checked against baseTitle below.
+			similar = anyName(`({v} IN (SELECT value FROM json_each(?4)) OR EXISTS (SELECT 1 FROM json_each(?5) p WHERE {v} LIKE p.value ESCAPE '\'))`)
+		}
 	case KindRelease:
 		sharesArtist = `EXISTS (SELECT 1 FROM release_artist a1 JOIN release_artist a2 ON a2.artist_id = a1.artist_id
   WHERE a1.release_id = ?1 AND a2.release_id = x.id)`
 	}
+	var patterns []string
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	for _, b := range bases {
+		e := esc.Replace(b)
+		patterns = append(patterns, e+" (%", e+" [%", e+" - %")
+	}
+	bjs, _ := json.Marshal(bases)
+	pjs, _ := json.Marshal(patterns)
 	sameLink := `EXISTS (SELECT 1 FROM external_link l1 JOIN external_link l2 ON l2.provider = l1.provider AND l2.provider_id = l1.provider_id
   WHERE l1.entity_type = '` + kind + `' AND l1.entity_id = ?1 AND l1.status IN ('confirmed', 'auto')
     AND l2.entity_type = '` + kind + `' AND l2.entity_id = x.id AND l2.status IN ('confirmed', 'auto'))`
-	reason := `CASE WHEN ` + sameLink + ` THEN 'Same catalogue entry' ELSE 'Same name' END AS reason`
+	reason := `CASE WHEN ` + sameLink + ` THEN 'Same catalogue entry' WHEN ` + sameName + ` THEN 'Same name' ELSE 'Similar name' END AS reason`
 	query := strings.Replace(base, "\nFROM ", ", "+reason+"\nFROM ", 1) + `
-WHERE x.id <> ?1 AND (` + sameLink + ` OR (` + sameName + ` AND ` + sharesArtist + `))
-ORDER BY reason = 'Same catalogue entry' DESC, 4 DESC
+WHERE x.id <> ?1 AND (` + sameLink + ` OR ((` + sameName + ` OR ` + similar + `) AND ` + sharesArtist + `))
+ORDER BY reason = 'Same catalogue entry' DESC, reason = 'Same name' DESC, 4 DESC
 LIMIT ?3`
-	rows, err := db.QueryContext(ctx, query, id, string(js), limit)
+	rows, err := db.QueryContext(ctx, query, id, string(js), limit*2, string(bjs), string(pjs))
 	if err != nil {
 		return nil, err
 	}
-	return scanCandidates(rows, kind)
+	got, err := scanCandidates(rows, kind)
+	if err != nil {
+		return nil, err
+	}
+	out := got[:0]
+	for _, c := range got {
+		if c.Reason == "Similar name" {
+			ok, err := sharesBase(ctx, db, kind, c.ID, bases)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+		}
+		if len(out) < limit {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// placementSuffix matches the text of a title suffix that only says where a
+// track appeared, not that it is a different recording: "bonus track",
+// "album version", "remastered 2011". Version tags such as live, remix,
+// acoustic or demo are deliberately left out.
+var placementSuffix = regexp.MustCompile(`^(?:bonus(?: track)?|(?:album|single|lp) version|(?:\d{4} )?remaster(?:ed)?(?: \d{4})?(?: version)?)$`)
+
+// titleSuffix splits a lowercased title into its head and a trailing
+// "(...)", "[...]" or " - ..." suffix.
+var titleSuffix = regexp.MustCompile(`^(.+)\s*(?:\(([^()]*)\)|\[([^\[\]]*)\]|\s-\s+(.+))$`)
+
+// baseTitle drops placement suffixes from a lowercased title, so
+// "song (bonus track)" and "song - 2011 remaster" both become "song".
+func baseTitle(s string) string {
+	s = strings.TrimSpace(s)
+	for {
+		m := titleSuffix.FindStringSubmatch(s)
+		if m == nil {
+			return s
+		}
+		inner := strings.TrimSpace(m[2] + m[3] + m[4])
+		if !placementSuffix.MatchString(inner) {
+			return s
+		}
+		s = strings.TrimSpace(m[1])
+	}
+}
+
+// baseTitles is the distinct non-empty base titles of names.
+func baseTitles(names []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, n := range names {
+		if b := baseTitle(n); b != "" && !seen[b] {
+			seen[b] = true
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// sharesBase reports whether one of the entity's names has a base title in bases.
+func sharesBase(ctx context.Context, db Querier, kind string, id int64, bases []string) (bool, error) {
+	names, err := entityNames(ctx, db, kind, id)
+	if err != nil {
+		return false, err
+	}
+	for _, b := range baseTitles(names) {
+		for _, want := range bases {
+			if b == want {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // entityNames is every name the entity goes by, lowercased: stored, display,

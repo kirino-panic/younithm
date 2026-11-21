@@ -63,3 +63,41 @@ func TestMergeCandidates(t *testing.T) {
 		t.Fatal("bad kind accepted")
 	}
 }
+
+func TestMergeSuggestionsSimilarName(t *testing.T) {
+	e := newEnv(t)
+	band := e.artist("Band")
+	other := e.artist("Other")
+	plain := e.recording("Ur not really bout it", band)
+	bonus := e.recording("Ur not really bout it (bonus track)", band)
+	remaster := e.recording("Ur Not Really Bout It - 2011 Remaster", band)
+	live := e.recording("Ur not really bout it (Live)", band)          // a different recording
+	cover := e.recording("Ur not really bout it (bonus track)", other) // no shared artist
+	longer := e.recording("Ur not really bout it at all", band)
+
+	got, err := edit.MergeSuggestions(ctx, e.db, "recording", plain, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[int64]string{}
+	for _, c := range got {
+		ids[c.ID] = c.Reason
+	}
+	if len(got) != 2 || ids[bonus] != "Similar name" || ids[remaster] != "Similar name" {
+		t.Fatalf("from plain: %+v", got)
+	}
+	for _, x := range []int64{live, cover, longer} {
+		if _, ok := ids[x]; ok {
+			t.Fatalf("suggested %d: %+v", x, got)
+		}
+	}
+
+	// The other way round: the bonus track finds the plain title and the remaster.
+	got, err = edit.MergeSuggestions(ctx, e.db, "recording", bonus, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Reason != "Similar name" {
+		t.Fatalf("from bonus: %+v", got)
+	}
+}
