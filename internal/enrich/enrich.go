@@ -78,6 +78,9 @@ type Manager struct {
 
 	namesDue  atomic.Bool // a names pass should run when the queue is idle
 	lastNames time.Time
+
+	creditedDone  atomic.Bool // the credited-name backfill has nothing left
+	creditedPause time.Time   // MusicBrainz failed: try the backfill again after this
 }
 
 func NewManager(db *sql.DB, matcher *match.Matcher, snaps *snapshot.Store, o Options) *Manager {
@@ -127,6 +130,12 @@ func (m *Manager) Run(ctx context.Context) {
 			m.autoMerge(ctx) // flags from before a rule existed, or whose proof arrived later
 			if err := m.NamePass(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("enrich: names pass: %v", err)
+			}
+		}
+		// Older albums get their credited names a few at a time while idle.
+		if n == 0 && err == nil {
+			if _, err := m.creditedNamesPass(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("enrich: credited-name backfill: %v", err)
 			}
 		}
 		select {
