@@ -121,3 +121,38 @@ func TestMergeSearchIgnoresPunctuation(t *testing.T) {
 		t.Fatalf("quote only: %+v", hits)
 	}
 }
+
+func TestMergeSuggestionsSameAlbumAndReleaseGroup(t *testing.T) {
+	e := newEnv(t)
+	duo := e.artist("Casiopea")
+	stray := e.artist("Casiopea Vs The Square") // a credit string taken as written
+	alb := e.release("Casiopea vs. The Square", "2000")
+	other := e.release("Elsewhere", "2001")
+	song := e.recording("Asayake", duo)
+	twin := e.recording("ASAYAKE", stray)
+	far := e.recording("Asayake", stray) // same name, no shared artist or album
+	e.onRelease(song, alb, 1)
+	e.onRelease(twin, alb, 1)
+	e.onRelease(far, other, 1)
+
+	got, err := edit.MergeSuggestions(ctx, e.db, "recording", song, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != twin || got[0].Reason != "Same name" {
+		t.Fatalf("same album: %+v", got)
+	}
+
+	mono := e.release("Pet Sounds (Mono)", "1966")
+	stereo := e.release("Pet Sounds", "1966")
+	unrelated := e.release("Smiley Smile", "1967")
+	e.exec(`UPDATE release SET release_group_mbid='rg-1' WHERE id IN (?, ?)`, mono, stereo)
+	e.exec(`UPDATE release SET release_group_mbid='rg-2' WHERE id=?`, unrelated)
+	got, err = edit.MergeSuggestions(ctx, e.db, "release", mono, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != stereo || got[0].Reason != "Same release group" {
+		t.Fatalf("release group: %+v", got)
+	}
+}

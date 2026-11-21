@@ -138,9 +138,11 @@ LIMIT ?5`
 // MergeSuggestions lists entities that may be the same as id: ones holding the
 // same catalogue id, then ones that go by one of its names (stored, display,
 // catalogue or scrobbled spelling), then tracks whose title differs only by a
-// suffix that says where the track appeared (see baseTitle). Same-named tracks
-// and albums must also share an artist, so a common title like "Intro" does not
-// flood the list.
+// suffix that says where the track appeared (see baseTitle). Albums in the same
+// MusicBrainz release group (editions: mono and stereo, standard and deluxe)
+// come right after catalogue matches. Same-named tracks must share an artist or
+// an album, and same-named albums an artist, so a common title like "Intro"
+// does not flood the list.
 func MergeSuggestions(ctx context.Context, db Querier, kind string, id int64, limit int) ([]Candidate, error) {
 	base, ok := candidateSQL[kind]
 	if !ok {
@@ -161,8 +163,12 @@ func MergeSuggestions(ctx context.Context, db Querier, kind string, id int64, li
 	similar, bases := "0", []string{}
 	switch kind {
 	case KindRecording:
-		sharesArtist = `EXISTS (SELECT 1 FROM recording_artist a1 JOIN recording_artist a2 ON a2.artist_id = a1.artist_id
-  WHERE a1.recording_id = ?1 AND a2.recording_id = x.id)`
+		// Sharing an album counts too: a track scrobbled under a credit string
+		// that became its own artist still lands on the album by title.
+		sharesArtist = `(EXISTS (SELECT 1 FROM recording_artist a1 JOIN recording_artist a2 ON a2.artist_id = a1.artist_id
+  WHERE a1.recording_id = ?1 AND a2.recording_id = x.id)
+  OR EXISTS (SELECT 1 FROM recording_release r1 JOIN recording_release r2 ON r2.release_id = r1.release_id
+  WHERE r1.recording_id = ?1 AND r2.recording_id = x.id))`
 		bases = baseTitles(names)
 		if len(bases) > 0 {
 			// A rough net (same base, or base plus any suffix); kept rows are
@@ -181,13 +187,17 @@ func MergeSuggestions(ctx context.Context, db Querier, kind string, id int64, li
 	}
 	bjs, _ := json.Marshal(bases)
 	pjs, _ := json.Marshal(patterns)
+	sameGroup := "0"
+	if kind == KindRelease {
+		sameGroup = `EXISTS (SELECT 1 FROM release g WHERE g.id = ?1 AND COALESCE(g.release_group_mbid, '') <> '' AND g.release_group_mbid = x.release_group_mbid)`
+	}
 	sameLink := `EXISTS (SELECT 1 FROM external_link l1 JOIN external_link l2 ON l2.provider = l1.provider AND l2.provider_id = l1.provider_id
   WHERE l1.entity_type = '` + kind + `' AND l1.entity_id = ?1 AND l1.status IN ('confirmed', 'auto')
     AND l2.entity_type = '` + kind + `' AND l2.entity_id = x.id AND l2.status IN ('confirmed', 'auto'))`
-	reason := `CASE WHEN ` + sameLink + ` THEN 'Same catalogue entry' WHEN ` + sameName + ` THEN 'Same name' ELSE 'Similar name' END AS reason`
+	reason := `CASE WHEN ` + sameLink + ` THEN 'Same catalogue entry' WHEN ` + sameGroup + ` THEN 'Same release group' WHEN ` + sameName + ` THEN 'Same name' ELSE 'Similar name' END AS reason`
 	query := strings.Replace(base, "\nFROM ", ", "+reason+"\nFROM ", 1) + `
-WHERE x.id <> ?1 AND (` + sameLink + ` OR ((` + sameName + ` OR ` + similar + `) AND ` + sharesArtist + `))
-ORDER BY reason = 'Same catalogue entry' DESC, reason = 'Same name' DESC, 4 DESC
+WHERE x.id <> ?1 AND (` + sameLink + ` OR ` + sameGroup + ` OR ((` + sameName + ` OR ` + similar + `) AND ` + sharesArtist + `))
+ORDER BY reason = 'Same catalogue entry' DESC, reason = 'Same release group' DESC, reason = 'Same name' DESC, 4 DESC
 LIMIT ?3`
 	rows, err := db.QueryContext(ctx, query, id, string(js), limit*2, string(bjs), string(pjs))
 	if err != nil {

@@ -353,7 +353,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
                 <span className="truncate">{c.name}</span>
                 {c.sub && <span className="muted truncate" style={{ fontSize: 12 }}>{c.sub}</span>}
               </span>
-              {c.reason && <Badge tone={c.reason === "Same catalogue entry" ? "accent" : undefined}>{c.reason}</Badge>}
+              {c.reason && <Badge tone={c.reason === "Same catalogue entry" || c.reason === "Same release group" ? "accent" : undefined}>{c.reason}</Badge>}
               <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{c.plays} {c.plays === 1 ? "play" : "plays"}</span>
             </button>
           ))}
