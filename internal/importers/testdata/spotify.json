@@ -1,0 +1,8 @@
+[
+  {"ts":"2023-11-14T22:17:20Z","platform":"synthetic","ms_played":200000,"master_metadata_track_name":"Test Song","master_metadata_album_artist_name":"Test Artist","master_metadata_album_album_name":"Test Album","spotify_track_uri":"spotify:track:ABCDEF123456","episode_name":null,"skipped":false},
+  {"ts":"2023-11-14T22:20:00Z","ms_played":5000,"master_metadata_track_name":"Skipped Song","master_metadata_album_artist_name":"Test Artist","master_metadata_album_album_name":"Test Album","spotify_track_uri":"spotify:track:SKIP00000001"},
+  {"ts":"2023-11-14T22:30:00Z","ms_played":600000,"master_metadata_track_name":null,"master_metadata_album_artist_name":null,"master_metadata_album_album_name":null,"spotify_track_uri":null,"episode_name":"Some Episode","episode_show_name":"Some Show","spotify_episode_uri":"spotify:episode:EP0000000001"},
+  {"ts":"not a date","ms_played":100000,"master_metadata_track_name":"Bad Date","master_metadata_album_artist_name":"X"},
+  {"ts":"2023-11-14T23:00:00Z","ms_played":"many","master_metadata_track_name":"Bad Type","master_metadata_album_artist_name":"X"},
+  {"endTime":"2023-11-15 08:04","artistName":"Legacy Artist","trackName":"Legacy Song","msPlayed":180000}
+]

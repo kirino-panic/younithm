@@ -1,0 +1,6 @@
+uts,utc_time,artist,artist_mbid,album,album_mbid,track,track_mbid
+1700000000,"14 Nov 2023, 22:13",Test Artist,cccccccc-0000-0000-0000-000000000001,Test Album,bbbbbbbb-0000-0000-0000-000000000001,"Song, with comma",aaaaaaaa-0000-0000-0000-000000000001
+1700000300,"14 Nov 2023, 22:18",Other Artist,,,,Plain Song,
+,"",Now Playing,,,,Nothing,
+abc,"",Bad Uts,,,,X,
+1700000900,"14 Nov 2023, 22:28",,,,,No Artist,

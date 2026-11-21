@@ -1,0 +1,13 @@
+services:
+  younithm:
+    image: kirinopanic/younithm:latest
+    container_name: younithm
+    ports:
+      - "2015:2015"
+    environment:
+      PUID: "99"
+      PGID: "100"
+      TZ: "Etc/UTC"
+    volumes:
+      - ./data:/config
+    restart: unless-stopped

@@ -1,0 +1,24 @@
+# Local dev data (SQLite DB, keys, artwork cache)
+data/
+
+# Go build output
+/bin/
+/younithm
+
+.DS_Store
+
+# Claude Code local state and worktrees
+.claude/
+
+# Debug UI dev data
+data-debug/
+
+# Frontend build output and dependencies (web/dist/.gitkeep stays so go:embed compiles)
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep
+
+/web/tsconfig.tsbuildinfo
+
+# Demo data for README screenshots (cmd/demodata)
+data-demo/

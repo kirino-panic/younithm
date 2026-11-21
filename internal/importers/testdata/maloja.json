@@ -1,0 +1,10 @@
+{
+  "maloja": {"export_time": 1700001000, "version": "3"},
+  "scrobbles": [
+    {"time": 1700000000, "duration": 200, "track": {"artists": ["Artist One", "Artist Two"], "title": "Song A", "length": 230, "album": {"albumtitle": "Album A", "artists": ["Artist One"]}}, "origin": "client:test"},
+    {"time": 1700000300, "duration": null, "track": {"artists": ["Solo"], "title": "Song B", "length": null, "album": null}, "origin": "import:test"},
+    {"track": {"artists": ["No Time"], "title": "Song C"}},
+    {"time": "later", "track": {"artists": ["Bad"], "title": "Song D"}},
+    {"time": 1700000600, "track": {"artists": [], "title": "No Artists"}}
+  ]
+}

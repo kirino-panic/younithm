@@ -1,0 +1,7 @@
+.git
+data
+data-debug
+bin
+docs
+README.md
+web/node_modules

@@ -1,0 +1,13 @@
+{
+  "version": "1",
+  "exported_at": "2024-01-01T00:00:00Z",
+  "user": "example",
+  "listens": [
+    {"listened_at": "2023-11-14T22:13:20Z", "client": "test",
+     "track": {"mbid": "aaaaaaaa-0000-0000-0000-000000000001", "duration": 215, "aliases": [{"alias": "Alt Title", "is_primary": false}, {"alias": "Song K", "is_primary": true}]},
+     "album": {"mbid": "bbbbbbbb-0000-0000-0000-000000000001", "aliases": [{"alias": "Album K", "is_primary": true}], "various_artists": false},
+     "artists": [{"mbid": "cccccccc-0000-0000-0000-000000000001", "is_primary": true, "aliases": [{"alias": "Artist K", "is_primary": true}]}, {"mbid": null, "is_primary": false, "aliases": [{"alias": "Guest", "is_primary": true}]}]},
+    {"listened_at": "yesterday", "track": {"aliases": [{"alias": "X", "is_primary": true}]}, "album": {}, "artists": [{"aliases": [{"alias": "Y", "is_primary": true}]}]},
+    {"listened_at": "2023-11-14T22:20:00Z", "track": {"aliases": []}, "album": {}, "artists": []}
+  ]
+}

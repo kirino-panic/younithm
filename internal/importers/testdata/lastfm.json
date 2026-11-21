@@ -1,0 +1,8 @@
+[{"track":[
+ {"artist":{"mbid":"cccccccc-0000-0000-0000-000000000009","#text":"JSON Artist"},"mbid":"aaaaaaaa-0000-0000-0000-000000000009","album":{"mbid":"","#text":"JSON Album"},"name":"JSON Song","date":{"uts":"1749776100","#text":"13 Jun 2025, 00:55"}},
+ {"artist":{"mbid":"","#text":"Playing Now"},"album":{"mbid":"","#text":""},"name":"Live","@attr":{"nowplaying":"true"}},
+ {"artist":{"mbid":"","#text":"Bad"},"album":{"mbid":"","#text":""},"name":"Bad Date","date":{"uts":"x"}}
+]},
+{"track":[
+ {"artist":{"mbid":"","#text":"Second Page"},"album":{"mbid":"","#text":""},"name":"Another","date":{"uts":"1749775800","#text":"13 Jun 2025, 00:50"}}
+]}]

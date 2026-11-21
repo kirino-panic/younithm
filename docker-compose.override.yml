@@ -1,0 +1,12 @@
+# Local development. Compose merges this over docker-compose.yml automatically,
+# so `docker compose up -d --build` builds from source instead of pulling.
+services:
+  younithm:
+    image: younithm:dev
+    build:
+      context: .
+      args:
+        VERSION: dev
+    environment:
+      # Import just the newest N listens of a file (e.g. YOUNITHM_DEBUG_IMPORT_LIMIT=100 docker compose up -d)
+      YOUNITHM_DEBUG_IMPORT_LIMIT: "${YOUNITHM_DEBUG_IMPORT_LIMIT:-}"

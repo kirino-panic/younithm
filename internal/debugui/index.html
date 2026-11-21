@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>younithm debug</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1a1a1a; --dim:#6b6b6b; --line:#d6d6d6; --accent:#0b5fff; --bad:#c62828; --good:#1b7f3b; --warn:#a15c00; --panel:#f5f5f5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161616; --fg:#e6e6e6; --dim:#9a9a9a; --line:#333; --accent:#6ea2ff; --bad:#ff7b72; --good:#56d364; --warn:#e3b341; --panel:#202020; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color:var(--accent); }
+  header { border-bottom:1px solid var(--line); padding:8px 16px; position:sticky; top:0; background:var(--bg); z-index:2; }
+  header .banner { color:var(--warn); font-size:12px; }
+  nav { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
+  nav button { font:inherit; padding:4px 12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer; }
+  nav button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  main { padding:16px; max-width:1200px; }
+  h2 { margin:0 0 12px; font-size:16px; } h3 { margin:18px 0 6px; font-size:14px; }
+  fieldset { border:1px solid var(--line); margin:0 0 16px; padding:10px 12px; }
+  legend { padding:0 6px; }
+  label { display:block; margin:6px 0 2px; color:var(--dim); }
+  input[type=text], input[type=password], input[type=number], textarea, select { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); padding:4px 6px; width:100%; max-width:560px; }
+  textarea { min-height:90px; }
+  input[type=text].short, input[type=number].short { width:150px; }
+  button.btn { font:inherit; padding:4px 12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); cursor:pointer; margin:6px 6px 0 0; }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.btn:disabled { opacity:.5; cursor:default; }
+  .row input[type=text] { width:340px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; }
+  .dim { color:var(--dim); } .bad { color:var(--bad); } .good { color:var(--good); } .warn { color:var(--warn); }
+  .chip { display:inline-block; padding:0 8px; border:1px solid var(--line); border-radius:10px; margin-left:8px; font-size:12px; }
+  table { border-collapse:collapse; width:100%; } th, td { text-align:left; padding:3px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:normal; }
+  tr.click { cursor:pointer; } tr.click:hover { background:var(--panel); }
+  td.num, th.num { text-align:right; }
+  pre { background:var(--panel); padding:8px; overflow:auto; margin:6px 0; max-height:420px; }
+  details > summary { cursor:pointer; color:var(--dim); }
+  .tree .kv { margin-left:18px; } .tree .k { color:var(--dim); } .tree .s { color:var(--good); } .tree .n { color:var(--accent); } .tree .nul { color:var(--dim); font-style:italic; }
+  .tree .str { white-space:pre-wrap; word-break:break-word; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:12px; }
+  .toast { position:fixed; right:16px; bottom:16px; background:var(--panel); border:1px solid var(--line); padding:8px 12px; max-width:460px; white-space:pre-wrap; }
+  .toast.err { border-color:var(--bad); }
+  progress { width:160px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>younithm debug UI</strong>
+  <span class="banner">dev tool &middot; no login &middot; only reachable from this machine</span>
+  <nav id="nav"></nav>
+</header>
+<main id="main"></main>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- helpers
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+async function api(path, opts = {}) {
+  const r = await fetch("/debug/api" + path, { ...opts, headers: { "X-Debug-UI": "1", ...(opts.headers || {}) } });
+  const text = await r.text();
+  let j = null; try { j = JSON.parse(text); } catch {}
+  if (!r.ok) throw new Error((j && (j.message || j.error)) || text.trim() || r.statusText);
+  return j;
+}
+const post = (p, body) => api(p, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }) });
+let toastTimer;
+function toast(msg, err) {
+  const t = $("#toast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), err ? 9000 : 3500);
+}
+const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, true); } };
+const fmt = (n) => (typeof n === "number" ? n.toLocaleString() : n);
+// Like replaceChildren, but skips null/false children (replaceChildren would print "null").
+function fill(node, ...kids) { node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false)); }
+const pretty = (v) => JSON.stringify(v, null, 2);
+
+// A little polling loop that stops when its panel is left.
+let timers = [];
+function every(ms, fn) { const id = setInterval(() => fn().catch(() => {}), ms); timers.push(id); }
+function stopTimers() { timers.forEach(clearInterval); timers = []; }
+
+// JSON tree with clickable ids -------------------------------------------
+const KINDS = ["artist", "recording", "release", "scrobble"];
+function refKind(key, parent) {
+  let m = /^(artist|recording|release|scrobble)_id$/.exec(key);
+  if (m) return m[1];
+  if ((key === "entity_id" || key === "other_id") && parent) {
+    const k = parent.entity_type || parent.kind;
+    if (KINDS.includes(k)) return k;
+  }
+  return null;
+}
+function tree(v, key, parent, open) {
+  if (v === null || v === undefined) return el("span", { class: "nul" }, "null");
+  if (typeof v === "number") {
+    const k = refKind(key, parent);
+    return k ? el("a", { class: "n", href: `#inspect/${k}/${v}` }, v) : el("span", { class: "n" }, v);
+  }
+  if (typeof v === "boolean") return el("span", { class: "n" }, String(v));
+  if (typeof v === "string") return el("span", { class: "s str" }, JSON.stringify(v));
+  if (Array.isArray(v)) {
+    if (!v.length) return el("span", { class: "dim" }, "[ ]");
+    const d = el("details", { open: open }, el("summary", {}, `${v.length} item${v.length > 1 ? "s" : ""}`));
+    v.forEach((x, i) => d.append(el("div", { class: "kv" }, el("span", { class: "k" }, i + ": "), tree(x, String(i), v, false))));
+    return d;
+  }
+  const keys = Object.keys(v);
+  if (!keys.length) return el("span", { class: "dim" }, "{ }");
+  const box = el("div", {});
+  keys.forEach((k) => {
+    const big = v[k] && typeof v[k] === "object" && (k === "raw_json" || k === "raw_payload" || k === "before_json" || k === "after_json");
+    box.append(el("div", { class: "kv" }, el("span", { class: "k" }, k + ": "), tree(v[k], k, v, !big && open !== false && typeof v[k] === "object" && depthOf(v[k]) < 2)));
+  });
+  return box;
+}
+function depthOf(v) { return v && typeof v === "object" ? 1 + Math.max(0, ...Object.values(v).map(depthOf)) : 0; }
+
+function table(rows, cols, onclick) {
+  if (!rows || !rows.length) return el("div", { class: "dim" }, "(none)");
+  cols = cols || Object.keys(rows[0]);
+  const t = el("table", {}, el("tr", {}, cols.map((c) => el("th", { class: typeof rows[0][c] === "number" ? "num" : "" }, c))));
+  rows.forEach((r) => {
+    const tr = el("tr", { class: onclick ? "click" : "" }, cols.map((c) => el("td", { class: typeof r[c] === "number" ? "num" : "" }, r[c] === null ? el("span", { class: "dim" }, "–") : typeof r[c] === "object" ? JSON.stringify(r[c]) : typeof r[c] === "number" ? fmt(r[c]) : String(r[c]))));
+    if (onclick) tr.addEventListener("click", () => onclick(r));
+    t.append(tr);
+  });
+  return t;
+}
+function kvTable(obj) {
+  return el("table", {}, Object.entries(obj).map(([k, v]) => el("tr", {}, el("td", {}, k), el("td", { class: "num" }, typeof v === "object" ? "" : fmt(v)))));
+}
+
+// ---------------------------------------------------------------- panels
+const panels = {};
+
+// ---- Connections
+panels.connections = async (root) => {
+  async function draw() {
+    const { providers } = await api("/connections");
+    fill(root, el("h2", {}, "Connections"),
+      el("p", { class: "dim" }, "Values are stored encrypted and never shown again (except the MusicBrainz contact). Save, then Test to make a real call."),
+      el("div", { class: "grid" }, providers.map(card)));
+  }
+  function card(p) {
+    const inputs = {};
+    const out = el("div", {});
+    const fields = p.fields.map((f) => {
+      const inp = f.multiline ? el("textarea", { placeholder: f.set ? "saved (…" + f.hint + "); paste to replace" : "" })
+        : el("input", { type: f.reveal ? "text" : "password", autocomplete: "off", placeholder: f.set && !f.reveal ? "saved (…" + f.hint + "); type to replace" : "", value: f.reveal ? f.value || "" : "" });
+      inputs[f.name] = inp;
+      return el("div", {}, el("label", {}, f.label, f.set ? el("span", { class: "chip good" }, "saved") : el("span", { class: "chip" }, "not set")),
+        inp, f.help ? el("div", { class: "dim" }, f.help) : null,
+        f.set ? el("button", { class: "btn", onclick: guard(async () => { await api("/connections/" + f.name, { method: "DELETE" }); toast("cleared " + f.name); draw(); }) }, "clear") : null);
+    });
+    const save = guard(async () => {
+      let n = 0;
+      for (const f of p.fields) { const v = inputs[f.name].value.trim(); if (v && !(f.reveal && v === f.value)) { await api("/connections/" + f.name, { method: "PUT", body: JSON.stringify({ value: v }) }); n++; } }
+      toast(n ? `saved ${n} field(s)` : "nothing changed"); draw();
+    });
+    const test = guard(async (ev) => {
+      const b = ev.target; b.disabled = true; fill(out, el("div", { class: "dim" }, "asking " + p.label + " …"));
+      try {
+        const r = await post("/connections/" + p.id + "/test");
+        fill(out, r.ok ? el("div", { class: "good" }, `OK in ${r.ms} ms, ${r.results.length} result(s) for “${r.query.Artist} – ${r.query.Title}”`) : el("div", { class: "bad" }, `${r.error_kind}: ${r.error}`),
+          r.results && r.results.length ? el("details", {}, el("summary", {}, "results"), el("pre", {}, pretty(r.results))) : null);
+      } finally { b.disabled = false; }
+    });
+    return el("fieldset", {}, el("legend", {}, p.label,
+      el("span", { class: "chip " + (p.configured ? "good" : "warn") }, p.configured ? "configured" + (p.source ? " (" + p.source + ")" : "") : "not configured")),
+      p.note ? el("div", { class: "dim" }, p.note) : null, fields,
+      p.fields.length ? el("button", { class: "btn primary", onclick: save }, "Save") : null,
+      p.in_registry || p.id === "itunes" ? el("button", { class: "btn", onclick: test }, "Test") : null, out);
+  }
+  await draw();
+};
+
+// ---- Import
+const myJobs = new Set(); // jobs uploaded from this page: auto-confirmed when asked
+panels.import = async (root) => {
+  const info = await api("/v1/admin/imports");
+  const formats = info.formats;
+  const file = el("input", { type: "file", multiple: true });
+  const format = el("select", {}, el("option", { value: "auto" }, "auto-detect"), formats.map((f) => el("option", { value: f }, f)));
+  const dedupe = el("input", { type: "text", class: "short", placeholder: "default " + info.defaults.dedupe_window_sec + "s" });
+  const spmin = el("input", { type: "number", class: "short", placeholder: "30000" });
+  const fuzzy = el("input", { type: "checkbox" });
+  const dbg = el("input", { type: "checkbox", checked: true });
+  const dbgN = el("input", { type: "number", class: "short", value: "100", min: "1" });
+  const auto = el("input", { type: "checkbox", checked: true });
+  const go = el("button", { class: "btn primary" }, "Import");
+  go.addEventListener("click", guard(async () => {
+    const files = [...file.files];
+    if (!files.length) throw new Error("choose a file first");
+    const q = new URLSearchParams({ format: format.value });
+    if (dedupe.value.trim()) q.set("dedupe_window", dedupe.value.trim());
+    if (spmin.value) q.set("spotify_min_ms", spmin.value);
+    if (fuzzy.checked) q.set("fuzzy_consent", "true");
+    if (dbg.checked) q.set("debug_limit", String(Math.max(1, +dbgN.value || 100)));
+    go.disabled = true;
+    try {
+      // Several files at once (Apple Music: both CSVs): the first creates the job, and
+      // each next one goes to it while it is waiting for files; a file that does not
+      // belong there starts its own job.
+      let waiting = null;
+      for (const f of files) {
+        const fd = new FormData(); fd.append("file", f);
+        let j = null;
+        if (waiting) {
+          try { j = await api(`/v1/admin/imports/${waiting.id}/files`, { method: "POST", body: fd }); } catch (e) { j = null; }
+        }
+        if (!j) { const fd2 = new FormData(); fd2.append("file", f); j = await api("/v1/admin/imports?" + q, { method: "POST", body: fd2 }); }
+        if (auto.checked) myJobs.add(j.id);
+        waiting = j.status === "awaiting_files" ? j : null;
+        toast(j.status === "awaiting_files" ? `job #${j.id}: waiting for ${j.files.filter((x) => !x.present).map((x) => x.label).join(", ")}` : `job #${j.id} queued (${j.format})`);
+      }
+      await drawJobs();
+    } finally { go.disabled = false; file.value = ""; }
+  }));
+  const jobsBox = el("div", {});
+  fill(root, el("h2", {}, "Import listens"),
+    el("fieldset", {}, el("legend", {}, "New import"),
+      el("p", { class: "dim" }, "Uploads an export file (Spotify extended history, Apple Music privacy export, ListenBrainz, Last.fm, Koito, Maloja). Imports never call a provider; run matching afterwards."),
+      el("p", { class: "warn" }, "Apple Music needs BOTH files: “Apple Music Play Activity.csv” (exact times, no artist or id) and “Apple Music - Play History Daily Tracks.csv” (artist and catalog id, day only). Select both at once, or the privacy-export zip that holds them. Nothing is scanned, joined, previewed or imported until both are here; a job waiting for one shows what is missing."),
+      el("label", {}, "File(s) (.json, .csv, .jsonl or .zip)"), file,
+      el("div", { class: "row" },
+        el("div", {}, el("label", {}, "Format"), format),
+        el("div", {}, el("label", {}, "Dedupe window"), dedupe),
+        el("div", {}, el("label", {}, "Spotify min ms"), spmin)),
+      el("fieldset", { style: "margin-top:10px" }, el("legend", {}, el("label", { style: "display:inline;margin:0" }, dbg, " DEBUG MODE: import only the most recent")),
+        el("div", {}, "newest ", dbgN, " listens of the file (by play time), nothing else. Off = the whole file.")),
+      el("label", { style: "display:inline-block;margin-right:16px" }, fuzzy, " allow fuzzy matching for listens with no ids"),
+      el("label", { style: "display:inline-block" }, auto, " confirm automatically after the preview"),
+      el("div", {}, go)),
+    el("h3", {}, "Jobs"), jobsBox);
+
+  async function drawJobs() {
+    const { jobs } = await api("/v1/admin/imports");
+    for (const j of jobs) if (j.status === "awaiting_confirmation" && myJobs.has(j.id)) { myJobs.delete(j.id); post(`/v1/admin/imports/${j.id}/confirm`).catch((e) => toast(e.message, true)); }
+    const act = (label, path, method) => el("button", { class: "btn", onclick: guard(async () => { await api(`/v1/admin/imports/${path}`, { method: method || "POST" }); drawJobs(); }) }, label);
+    fill(jobsBox, !jobs.length ? el("div", { class: "dim" }, "(no imports yet)") :
+      el("table", {}, el("tr", {}, ["#", "status", "file", "format", "progress", "options", ""].map((h) => el("th", {}, h))),
+        jobs.map((j) => {
+          const p = j.progress, o = j.options;
+          return el("tr", {},
+            el("td", {}, j.id),
+            el("td", { class: j.status === "failed" ? "bad" : j.status === "done" ? "good" : j.status === "awaiting_files" ? "warn" : "" }, j.status, j.status === "running" || j.status === "queued" ? " (" + j.phase + ")" : "", j.error ? el("div", { class: "bad" }, j.error) : null),
+            el("td", {}, j.files && j.files.length ? j.files.map((x) => el("div", {}, x.present ? el("span", { class: "good" }, "✓ " + x.label) : el("span", { class: "warn" }, "waiting for " + x.label), x.present ? el("span", { class: "dim" }, " (" + x.filename + ", " + fmt(x.size) + " B)") : null)) : [j.filename, el("div", { class: "dim" }, fmt(j.file_size) + " B")]),
+            el("td", {}, j.format),
+            el("td", {}, `rows ${fmt(p.rows_seen)} · parsed ${fmt(p.parsed)} · new ${fmt(p.new)} · dup ${fmt(p.duplicates)} · by-name ${fmt(p.unmatched)} · inserted ${fmt(p.inserted)} · errors ${fmt(p.errors)}`),
+            el("td", { class: "dim" }, o.debug_limit ? el("span", { class: "warn" }, "DEBUG newest " + o.debug_limit) : "full file", " · dedupe " + o.dedupe_window_sec + "s", o.fuzzy_consent ? " · fuzzy" : ""),
+            el("td", {}, j.status === "awaiting_confirmation" ? act("Confirm", j.id + "/confirm") : null, j.status === "failed" ? act("Retry", j.id + "/retry") : null,
+              (j.missing || []).map((role) => { const lab = j.files.find((x) => x.role === role).label; return el("button", { class: "btn primary", onclick: () => {
+                const inp = el("input", { type: "file" });
+                inp.addEventListener("change", guard(async () => { if (!inp.files[0]) return; const fd = new FormData(); fd.append("file", inp.files[0]); await api(`/v1/admin/imports/${j.id}/files`, { method: "POST", body: fd }); toast("file added"); drawJobs(); }));
+                inp.click(); } }, "Add " + lab); }),
+              ["queued", "running", "awaiting_confirmation", "awaiting_files"].includes(j.status) ? act("Cancel", j.id + "/cancel") : act("Delete", j.id, "DELETE"),
+              el("button", { class: "btn", onclick: guard(async () => { const full = await api("/v1/admin/imports/" + j.id); const box = el("pre", {}, pretty(full)); jobsBox.append(el("h3", {}, "job #" + j.id), box); box.scrollIntoView(); }) }, "JSON")));
+        })));
+  }
+  await drawJobs();
+  every(1500, drawJobs);
+};
+
+// ---- Stats
+panels.stats = async (root) => {
+  const box = el("div", {});
+  const refresh = guard(async () => {
+    const s = await api("/stats");
+    const inspectLink = (kind) => (r) => (location.hash = `#inspect/${kind}/${r[kind + "_id"]}`);
+    const sec = (title, node) => el("div", {}, el("h3", {}, title), node);
+    const pl = s.plays;
+    fill(box, 
+      el("div", { class: "grid" },
+        sec("Objects", kvTable(s.objects)),
+        sec("Plays", el("div", {}, kvTable({ total: pl.total, "distinct recordings played": pl["distinct recordings played"], "distinct releases played": pl["distinct releases played"], "with a recording": pl["with a recording"], "with a release": pl["with a release"], "with a raw payload": pl["with a raw payload"] }),
+          el("div", { class: "dim" }, `from ${pl.earliest[0].at || "–"} to ${pl.latest[0].at || "–"}`), el("h3", {}, "by source"), table(pl["by source"]), el("h3", {}, "by import job"), table(pl["by import job"]))),
+        sec("Artists", kvTable(s.artists)), sec("Recordings (tracks)", kvTable(s.recordings)), sec("Releases (albums)", kvTable(s.releases))),
+      sec("Integrity (first three must be 0)", kvTable(s.integrity)),
+      sec("External links: entity / provider / status", table(s.external_links["by entity, provider, status"])),
+      sec("External links: match method", table(s.external_links["by match method"])),
+      sec("Enrichment jobs", table(s.enrichment["jobs by status and outcome"])),
+      el("div", { class: "dim" }, "recordings with no enrichment job: " + fmt(s.enrichment["recordings with no job"])),
+      s.enrichment["recent errors"].length ? sec("Recent enrichment errors", table(s.enrichment["recent errors"], null, (r) => (location.hash = `#inspect/recording/${r.recording_id}`))) : null,
+      el("div", { class: "grid" }, sec("Top artists", table(s.top.artists, null, inspectLink("artist"))), sec("Top tracks", table(s.top.tracks, null, inspectLink("recording"))), sec("Top albums", table(s.top.albums, null, inspectLink("release")))));
+  });
+  fill(root, el("h2", {}, "Stats", el("button", { class: "btn", onclick: refresh }, "Refresh")), box);
+  await refresh();
+};
+
+// ---- Matching
+panels.matching = async (root) => {
+  const cbId = el("input", { type: "checkbox", checked: true }), cbEn = el("input", { type: "checkbox", checked: true });
+  const status = el("div", {}), review = el("div", {});
+  const hp = el("input", { type: "checkbox" });
+  hp.addEventListener("change", guard(async () => {
+    const r = await api("/v1/admin/matching", { method: "PUT", body: JSON.stringify({ high_precision: hp.checked }), headers: { "Content-Type": "application/json" } });
+    toast(r.high_precision ? "high-precision mode ON: applies to recordings matched from now on" : "high-precision mode off");
+  }));
+  api("/v1/admin/matching").then((r) => (hp.checked = r.high_precision)).catch(() => {});
+  const runBtn = el("button", { class: "btn primary", onclick: guard(async () => { await post("/matching/run", { identity: cbId.checked, enrichment: cbEn.checked }); toast("matching started"); draw(); }) }, "Run full matching");
+  fill(root, el("h2", {}, "Matching"),
+    el("fieldset", {}, el("legend", {}, "Mode"),
+      el("label", { style: "display:inline-block" }, hp, " High-precision mode"),
+      el("p", { class: "dim" }, "Off (default): matches use ids, ISRC + duration, and the release dates MusicBrainz already returns; no extra requests. On: for each album the catalogue's barcode (Spotify UPC) finds the MusicBrainz release and the track at the same disc and position is the match, with duration and ISRC cross-checks. About one extra MusicBrainz request per album (roughly doubling MusicBrainz time on a library of mostly single tracks); it only gets used where the album is on MusicBrainz with a barcode. It applies to recordings matched from now on: run matching again to apply it to the library.")),
+    el("fieldset", {}, el("legend", {}, "Run"),
+      el("p", { class: "dim" }, "1) identity: re-resolve every scrobble's raw payload into artists / recordings / releases. 2) providers: queue every recording for MusicBrainz / Spotify / Apple matching (worked in the background at each provider's rate limit)."),
+      el("label", { style: "display:inline-block;margin-right:16px" }, cbId, " identity re-resolve"), el("label", { style: "display:inline-block" }, cbEn, " provider matching"),
+      el("div", {}, runBtn,
+        el("button", { class: "btn", onclick: guard(async () => { await post("/v1/admin/identity/backfill/preview"); toast("dry run started"); draw(); }) }, "Identity dry run"),
+        el("button", { class: "btn", onclick: guard(async () => { await post("/v1/admin/identity/backfill/cancel"); toast("cancelling"); draw(); }) }, "Cancel identity run"))),
+    status, el("h3", {}, "Ambiguous matches awaiting review"), review);
+
+  async function draw() {
+    const m = await api("/matching");
+    const r = m.run;
+    runBtn.disabled = r.running;
+    const bf = (b) => (b ? el("div", {}, `#${b.id} ${b.status}${b.dry_run ? " (dry run)" : ""}: ${fmt(b.report.processed)} / ${fmt(b.total)} scrobbles`, b.error ? el("span", { class: "bad" }, " " + b.error) : null, el("details", {}, el("summary", {}, "report"), el("pre", {}, pretty(b.report)))) : el("div", { class: "dim" }, "none yet"));
+    fill(status, 
+      el("h3", {}, "This run", r.running ? el("span", { class: "chip warn" }, "running") : null),
+      r.steps && r.steps.length ? el("table", {}, r.steps.map((s) => el("tr", {}, el("td", {}, s.name), el("td", { class: s.state === "failed" ? "bad" : s.state === "done" ? "good" : "" }, s.state), el("td", { class: "dim" }, s.detail || "")))) : el("div", { class: "dim" }, "nothing run since the server started"),
+      r.error ? el("div", { class: "bad" }, r.error) : null,
+      el("div", { class: "grid" },
+        el("div", {}, el("h3", {}, "Queue (provider matching)"), kvTable(m.queue)),
+        el("div", {}, el("h3", {}, "Integrity (first three must be 0)"), kvTable(m.integrity)),
+        el("div", {}, el("h3", {}, "Identity: last real run"), bf(m.backfill_last), el("h3", {}, "Identity: last dry run"), bf(m.backfill_dry_run))));
+  }
+  async function drawReview() {
+    const { items } = await api("/v1/admin/review?limit=20");
+    const decide = (c, verb) => el("button", { class: "btn", onclick: guard(async () => { await post(`/v1/admin/review/links/${c.link_id}/${verb}`); drawReview(); }) }, `${verb} #${c.link_id}`);
+    const one = (it) => {
+      const rows = it.candidates.map((c) => ({ link: c.link_id, provider: c.provider, provider_id: c.provider_id, method: c.method, confidence: c.confidence, title: c.title || "", artists: (c.artists || []).join(", "), releases: (c.releases || []).join(" | ") }));
+      const head = [el("a", { href: "#inspect/recording/" + it.recording_id }, `recording ${it.recording_id}`), `: ${it.artist} – ${it.title}`, it.album ? ` [${it.album}]` : "", it.duration_ms ? ` ${Math.round(it.duration_ms / 1000)}s` : ""];
+      return el("fieldset", {}, el("legend", {}, ...head), table(rows), ...it.candidates.flatMap((c) => [decide(c, "confirm"), decide(c, "reject")]));
+    };
+    fill(review, ...(items.length ? items.map(one) : [el("div", { class: "dim" }, "(none)")]));
+  }
+  await draw(); await drawReview();
+  every(2000, draw);
+};
+
+// ---- Inspect
+panels.inspect = async (root, args) => {
+  const [kind, id] = args;
+  if (kind && id) return detail(root, kind, id);
+  const k = el("select", {}, KINDS.map((x) => el("option", { value: x }, x)));
+  const q = el("input", { type: "text", placeholder: "name, title, id, MBID, Spotify / Apple id, ISRC" });
+  const sort = el("select", {}, el("option", { value: "plays" }, "most played first"), el("option", { value: "id" }, "by id"));
+  const idk = el("select", {}, KINDS.map((x) => el("option", { value: x }, x))), idv = el("input", { type: "number", class: "short", placeholder: "id" });
+  const out = el("div", {}); let offset = 0;
+  const search = guard(async () => {
+    const r = await api(`/list/${k.value}?q=${encodeURIComponent(q.value)}&sort=${sort.value}&offset=${offset}&limit=50`);
+    const idc = r.kind + "_id";
+    fill(out, r.items.length ? table(r.items, null, (row) => (location.hash = `#inspect/${r.kind}/${row[idc]}`)) : el("div", { class: "dim" }, "(no matches)"),
+      el("div", {}, offset > 0 ? el("button", { class: "btn", onclick: () => { offset = Math.max(0, offset - 50); search(); } }, "‹ prev") : null, r.more ? el("button", { class: "btn", onclick: () => { offset += 50; search(); } }, "next ›") : null,
+        el("span", { class: "dim" }, ` showing ${offset + 1}–${offset + r.items.length}`)));
+  });
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter") { offset = 0; search(); } });
+  fill(root, el("h2", {}, "Inspect"),
+    el("fieldset", {}, el("legend", {}, "Find"), el("div", { class: "row" }, el("div", {}, el("label", {}, "kind"), k), el("div", {}, el("label", {}, "search"), q), el("div", {}, el("label", {}, "order"), sort),
+      el("div", {}, el("button", { class: "btn primary", onclick: () => { offset = 0; search(); } }, "Search")))),
+    el("fieldset", {}, el("legend", {}, "Open by id"), el("div", { class: "row" }, idk, idv, el("button", { class: "btn", onclick: () => idv.value && (location.hash = `#inspect/${idk.value}/${idv.value}`) }, "Open"))), out);
+  await search();
+};
+async function detail(root, kind, id) {
+  const data = await api(`/inspect/${kind}/${id}`);
+  const body = el("div", { class: "tree" });
+  for (const [k, v] of Object.entries(data)) {
+    if (k === "kind") continue;
+    const n = Array.isArray(v) ? ` (${v.length})` : "";
+    body.append(el("h3", {}, k + n), tree(v, k, data, k === kind || (Array.isArray(v) && v.length > 0 && v.length <= 6)));
+  }
+  fill(root, 
+    el("h2", {}, el("a", { href: "#inspect" }, "‹ Inspect"), ` / ${kind} ${id}`),
+    el("div", {}, el("button", { class: "btn", onclick: () => navigator.clipboard.writeText(pretty(data)).then(() => toast("JSON copied")) }, "Copy all JSON"),
+      kind === "recording" ? el("button", { class: "btn", onclick: guard(async () => { await post(`/v1/admin/review/recordings/${id}/rematch`); toast("queued for matching now"); }) }, "Re-match this recording") : null),
+    body);
+}
+
+// ---------------------------------------------------------------- router
+const TABS = [["connections", "Connections"], ["import", "Import"], ["stats", "Stats"], ["matching", "Matching"], ["inspect", "Inspect"]];
+async function route() {
+  stopTimers();
+  const [name, ...args] = (location.hash.slice(1) || "connections").split("/");
+  const tab = panels[name] ? name : "connections";
+  fill($("#nav"), ...TABS.map(([id, label]) => el("button", { class: id === tab ? "on" : "", onclick: () => (location.hash = "#" + id) }, label)));
+  const root = $("#main"); fill(root, el("div", { class: "dim" }, "loading …"));
+  try { await panels[tab](root, args); } catch (e) { fill(root, el("h2", {}, "Error"), el("pre", { class: "bad" }, e.message)); }
+}
+addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
