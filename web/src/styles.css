@@ -342,7 +342,7 @@ a.list-row:hover .list-title { color: var(--accent); }
 }
 
 /* Grouped lists, as in iOS Settings: a caption above an inset group of rows. */
-.groups { display: grid; gap: var(--s5); }
+.groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s5); } /* the column may shrink: long titles truncate instead of widening cards */
 .group-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: 0 var(--s4) var(--s2); min-width: 0; }
 .group-title { font-size: var(--t-footnote); font-weight: 500; color: var(--label-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-list { background: var(--surface); border-radius: var(--r); padding: 0 var(--s4); }
