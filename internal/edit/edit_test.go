@@ -302,6 +302,37 @@ func TestDeleteScrobbleUndoRestoresRawRow(t *testing.T) {
 	}
 }
 
+func TestDeleteScrobblesIsOneUndoableEdit(t *testing.T) {
+	e := newEnv(t)
+	a := e.scrobble("2024-01-01T10:00:00Z", "A", "S", "Alb", nil, nil)
+	b := e.scrobble("2024-01-02T10:00:00Z", "A", "T", "Alb", nil, nil)
+	keep := e.scrobble("2024-01-03T10:00:00Z", "A", "U", "Alb", nil, nil)
+	start := e.snapshot()
+	r, err := e.ed.DeleteScrobbles(ctx, "a", []int64{a, b, a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.count(`SELECT COUNT(*) FROM scrobble`) != 1 || e.count(`SELECT COUNT(*) FROM scrobble WHERE id=?`, keep) != 1 {
+		t.Fatal("wrong scrobbles deleted")
+	}
+	if _, err := e.ed.Undo(ctx, "a", r.EditID); err != nil {
+		t.Fatal(err)
+	}
+	if e.snapshot() != start {
+		t.Fatal("one undo did not restore every scrobble")
+	}
+	// A missing id deletes nothing; an empty list is refused.
+	if _, err := e.ed.DeleteScrobbles(ctx, "a", []int64{a, 999999}); err == nil {
+		t.Fatal("missing id accepted")
+	}
+	if e.count(`SELECT COUNT(*) FROM scrobble`) != 3 {
+		t.Fatal("partial delete")
+	}
+	if _, err := e.ed.DeleteScrobbles(ctx, "a", nil); err == nil {
+		t.Fatal("empty list accepted")
+	}
+}
+
 func TestEditEntityEverywhereAndAlias(t *testing.T) {
 	e := newEnv(t)
 	a := e.artist("Beatls")

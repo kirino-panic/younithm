@@ -449,6 +449,43 @@ func (e *Editor) DeleteScrobble(ctx context.Context, actor string, id int64) (*R
 	})
 }
 
+// MaxDeleteAtOnce is the most scrobbles one DeleteScrobbles call removes.
+const MaxDeleteAtOnce = 1000
+
+// DeleteScrobbles removes the scrobbles ids as one logged edit, so a single
+// undo brings them all back. Every id must exist.
+func (e *Editor) DeleteScrobbles(ctx context.Context, actor string, ids []int64) (*Result, error) {
+	seen := map[int64]bool{}
+	var uniq []int64
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			uniq = append(uniq, id)
+		}
+	}
+	if len(uniq) == 0 {
+		return nil, invalid("bad_value", "no scrobbles given")
+	}
+	if len(uniq) > MaxDeleteAtOnce {
+		return nil, invalid("too_many", "at most %d scrobbles at once", MaxDeleteAtOnce)
+	}
+	if len(uniq) == 1 {
+		return e.DeleteScrobble(ctx, actor, uniq[0])
+	}
+	return e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
+		cs := make([]Change, 0, len(uniq))
+		for _, id := range uniq {
+			row, err := loadScrobble(ctx, tx, id)
+			if err != nil {
+				return nil, err
+			}
+			cs = append(cs, Change{Table: "scrobble", Key: Row{"id": id}, Before: row})
+		}
+		return &draft{scope: "scrobble", entityType: "scrobble", entityID: uniq[0],
+			summary: fmt.Sprintf("Delete %d scrobbles", len(uniq)), changes: cs}, nil
+	})
+}
+
 // ScrobbleView is the admin-only raw-vs-effective view of a scrobble.
 type ScrobbleView struct {
 	ID           int64   `json:"id"`

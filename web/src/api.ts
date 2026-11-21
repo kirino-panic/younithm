@@ -283,6 +283,7 @@ export const endpoints = {
   undo: (editId: number) => api.post(`/api/v1/admin/edits/${editId}/undo`),
   editScrobble: (id: number, body: ScrobbleEditBody) => api.patch<EditResult>(`/api/v1/admin/scrobbles/${id}`, body),
   deleteScrobble: (id: number) => api.del<EditResult>(`/api/v1/admin/scrobbles/${id}`),
+  deleteScrobbles: (ids: number[]) => api.post<EditResult>("/api/v1/admin/scrobbles/delete", { ids }),
 };
 
 export const reauth = (password: string) => api.post("/api/v1/auth/reauth", { password });

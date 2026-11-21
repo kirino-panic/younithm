@@ -28,6 +28,7 @@ import (
 //	GET    /api/v1/admin/scrobbles/{id}                  raw vs effective
 //	PATCH  /api/v1/admin/scrobbles/{id}                  {played_at, recording_id, release_id, link_release}
 //	DELETE /api/v1/admin/scrobbles/{id}
+//	POST   /api/v1/admin/scrobbles/delete                {ids}  one edit, one undo
 //	POST   /api/v1/admin/scrobbles/{id}/move-album       {release_id, link_release}
 //	POST   /api/v1/admin/scrobbles/bulk/preview          {filter, set}
 //	POST   /api/v1/admin/scrobbles/bulk/apply            {filter, set, expected_matched}  (step-up)
@@ -72,6 +73,7 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Get(p+"/scrobbles/{id}", h.view)
 		r.Patch(p+"/scrobbles/{id}", h.editScrobble)
 		r.Delete(p+"/scrobbles/{id}", h.deleteScrobble)
+		r.Post(p+"/scrobbles/delete", h.deleteScrobbles)
 		r.Post(p+"/scrobbles/{id}/move-album", h.moveAlbum)
 		r.Post(p+"/scrobbles/bulk/preview", h.bulkPreview)
 		r.Patch(p+"/entities/{kind}/{id}", h.editEntity)
@@ -235,6 +237,17 @@ func (h *handlers) deleteScrobble(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.ed.DeleteScrobble(r.Context(), actor(r), id)
+	done(w, res, err)
+}
+
+func (h *handlers) deleteScrobbles(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs []int64 `json:"ids"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.DeleteScrobbles(r.Context(), actor(r), in.IDs)
 	done(w, res, err)
 }
 

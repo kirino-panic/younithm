@@ -51,6 +51,7 @@ function ScrobbleList({ q, setQ, query, admin }: { q: string; setQ: (v: string) 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [timing, setTiming] = useState<Scrobble | null>(null);
   const [removing, setRemoving] = useState<Scrobble | null>(null);
+  const [removingMany, setRemovingMany] = useState<number[] | null>(null);
 
   const { items, total, more, done, busy, failed, reload } = useScrobbles(query);
   const sentinel = useInfinite(more, done || failed, busy);
@@ -65,6 +66,23 @@ function ScrobbleList({ q, setQ, query, admin }: { q: string; setQ: (v: string) 
   const askDelete = (r: Scrobble, e: React.MouseEvent) => {
     if (e.shiftKey) deleteNow(r).catch((err: Error) => toast({ text: err.message }));
     else setRemoving(r);
+  };
+  // The selected scrobbles go as one edit, so one Undo brings them all back.
+  const deleteSelected = async (ids: number[]) => {
+    try {
+      const r = await endpoints.deleteScrobbles(ids);
+      setSelected(new Set());
+      reload();
+      const n = ids.length;
+      toast({ text: n === 1 ? "Scrobble deleted" : `${n} scrobbles deleted`, action: { label: "Undo", run: () => endpoints.undo(r.edit_id).then(reload).catch(() => toast({ text: "Couldn't undo." })) } });
+    } catch (e) {
+      throw new Error(e instanceof ApiError && e.message ? e.message : "Couldn't delete.");
+    }
+  };
+  const askDeleteSelected = (e: React.MouseEvent) => {
+    const ids = [...selected];
+    if (e.shiftKey) deleteSelected(ids).catch((err: Error) => toast({ text: err.message }));
+    else setRemovingMany(ids);
   };
 
   return (
@@ -132,13 +150,14 @@ function ScrobbleList({ q, setQ, query, admin }: { q: string; setQ: (v: string) 
           <span style={{ alignSelf: "center", padding: "0 8px", fontSize: 13 }} className="num">{selected.size} selected</span>
           <button className="btn btn-primary">Edit…</button>
           <button className="btn">Move to album…</button>
-          <button className="btn btn-danger">Delete</button>
+          <button className="btn btn-danger" title="Delete (Shift-click skips the confirmation)" onClick={askDeleteSelected}>Delete</button>
           <button className="btn btn-plain" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
       )}
 
       {timing && <ScrobbleEditor s={timing} onClose={() => setTiming(null)} onSaved={reload} />}
-      {removing && <DeleteDialog s={removing} onClose={() => setRemoving(null)} remove={deleteNow} />}
+      {removing && <DeleteDialog count={1} onClose={() => setRemoving(null)} remove={() => deleteNow(removing)} />}
+      {removingMany && <DeleteDialog count={removingMany.length} onClose={() => setRemovingMany(null)} remove={() => deleteSelected(removingMany)} />}
     </div>
   );
 }
@@ -160,14 +179,14 @@ function useDeleteScrobble(onDeleted: (id: number) => void) {
   };
 }
 
-function DeleteDialog({ s, onClose, remove: doRemove }: { s: Scrobble; onClose: () => void; remove: (s: Scrobble) => Promise<void> }) {
+function DeleteDialog({ count, onClose, remove: doRemove }: { count: number; onClose: () => void; remove: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   const remove = async () => {
     setBusy(true); setErr("");
     try {
-      await doRemove(s);
+      await doRemove();
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't delete.");
@@ -177,7 +196,7 @@ function DeleteDialog({ s, onClose, remove: doRemove }: { s: Scrobble; onClose: 
 
   return (
     <Modal onClose={onClose}>
-      <h3 style={{ fontSize: 17 }}>Delete this scrobble?</h3>
+      <h3 style={{ fontSize: 17 }}>{count === 1 ? "Delete this scrobble?" : `Delete ${count} scrobbles?`}</h3>
       <p className="muted" style={{ fontSize: 13 }}>Tip: Holding Shift while clicking delete skips this dialogue box.</p>
       {err && <p className="muted" role="alert" style={{ color: "var(--danger)", fontSize: 13 }}>{err}</p>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
