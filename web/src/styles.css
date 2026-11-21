@@ -47,6 +47,7 @@
   --success: #3ccf8e;
   --warning: #f2b544;
   --danger: #ff6b6b;
+  --danger-fill: #dc2626; /* filled destructive buttons: white text stays readable (4.8:1) */
 
   /* Theme-controlled */
   --accent: #c8775a;
@@ -203,6 +204,9 @@ h1, h2, h3, p { margin: 0; }
 .btn-plain { background: none; border-color: transparent; }
 .btn-plain:hover { background: var(--fill); }
 .btn-danger { color: var(--danger); }
+/* A confirming destructive button is always solid red with white text. */
+.btn-primary.btn-danger { background: var(--danger-fill); color: #fff; }
+.btn-primary.btn-danger:hover { background: color-mix(in srgb, var(--danger-fill) 88%, white); }
 .btn-icon { width: 32px; padding: 0; }
 .btn[disabled] { opacity: 0.45; pointer-events: none; }
 

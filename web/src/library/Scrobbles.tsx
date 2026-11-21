@@ -143,10 +143,6 @@ function ScrobbleList({ q, setQ, query, admin }: { q: string; setQ: (v: string) 
   );
 }
 
-function Heading({ s }: { s: Scrobble }) {
-  return <p className="muted" style={{ fontSize: 13 }}>{s.title} · {s.artist}</p>;
-}
-
 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
 
@@ -182,8 +178,6 @@ function DeleteDialog({ s, onClose, remove: doRemove }: { s: Scrobble; onClose: 
   return (
     <Modal onClose={onClose}>
       <h3 style={{ fontSize: 17 }}>Delete this scrobble?</h3>
-      <Heading s={s} />
-      <p className="muted" style={{ fontSize: 13 }}>Only this play is removed. You can undo it right after.</p>
       {err && <p className="muted" role="alert" style={{ color: "var(--danger)", fontSize: 13 }}>{err}</p>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn" onClick={onClose}>Cancel</button>
