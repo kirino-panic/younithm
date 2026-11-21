@@ -131,9 +131,6 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
         </label>
       </section>
 
-      <p className="faint" style={{ fontSize: 12 }}>
-        Only this scrobble changes. If a track with this title and these artists already exists it is used, otherwise a new one is created.
-      </p>
       {err && !relinking && <p role="alert" style={{ color: "var(--danger)", fontSize: 13 }}>{err}</p>}
 
       {relinking && (

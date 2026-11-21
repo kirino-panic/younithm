@@ -166,9 +166,9 @@ const stop = (e: React.MouseEvent) => e.stopPropagation();
 
 
 // Deletes one scrobble and offers Undo. Rejects with a message if it fails.
-function useDeleteScrobble(onDeleted: (id: number) => void) {
+export function useDeleteScrobble(onDeleted: (id: number) => void) {
   const toast = useToast();
-  return async (s: Scrobble) => {
+  return async (s: Pick<Scrobble, "id">) => {
     try {
       const r = await endpoints.deleteScrobble(s.id);
       onDeleted(s.id);
@@ -179,7 +179,7 @@ function useDeleteScrobble(onDeleted: (id: number) => void) {
   };
 }
 
-function DeleteDialog({ count, onClose, remove: doRemove }: { count: number; onClose: () => void; remove: () => Promise<void> }) {
+export function DeleteDialog({ count, onClose, remove: doRemove }: { count: number; onClose: () => void; remove: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 

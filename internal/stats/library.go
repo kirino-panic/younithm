@@ -550,6 +550,7 @@ WHERE rr.recording_id = ? ORDER BY rr.is_primary DESC, plays DESC, rel.release_d
 }
 
 type historyItem struct {
+	ID        int64   `json:"id"`
 	PlayedAt  string  `json:"played_at"`
 	ReleaseID *int64  `json:"release_id"`
 	Album     *string `json:"album"`
@@ -566,7 +567,7 @@ func (h *Handler) recordingHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.read.QueryContext(r.Context(), `
-SELECT s.played_at, s.release_id, COALESCE(rel.title, NULLIF(s.raw_album, ''))
+SELECT s.id, s.played_at, s.release_id, COALESCE(rel.title, NULLIF(s.raw_album, ''))
 FROM scrobble s LEFT JOIN release rel ON rel.id = s.release_id
 WHERE s.user_id = 1 AND s.recording_id = ? ORDER BY s.played_at DESC, s.id DESC LIMIT ?`, id, limit)
 	if err != nil {
@@ -577,7 +578,7 @@ WHERE s.user_id = 1 AND s.recording_id = ? ORDER BY s.played_at DESC, s.id DESC 
 	items := []historyItem{}
 	for rows.Next() {
 		var it historyItem
-		if err := rows.Scan(&it.PlayedAt, &it.ReleaseID, &it.Album); err != nil {
+		if err := rows.Scan(&it.ID, &it.PlayedAt, &it.ReleaseID, &it.Album); err != nil {
 			fail(w, "recording history", err)
 			return
 		}

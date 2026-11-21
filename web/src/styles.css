@@ -270,6 +270,21 @@ h1, h2, h3, p { margin: 0; }
 }
 .list-row:last-child { border-bottom: 0; }
 a.list-row:hover .list-title { color: var(--accent); }
+/* Recent: cover, title and each artist are separate links. */
+.recent-row a { color: inherit; }
+.recent-row a:hover, .recent-row a.list-title:hover { color: var(--accent); }
+.recent-cover { flex: none; display: flex; border-radius: var(--r-sm); transition: opacity var(--dur); }
+.recent-cover:hover { opacity: 0.8; }
+/* Row tools (edit, delete) show on the row under the pointer, or with keyboard focus. Touch screens always show them. */
+/* Zero height: the 32px buttons overflow the row evenly instead of making it taller. */
+.row-tools { display: flex; flex: none; gap: 2px; height: 0; align-items: center; }
+/* With a pointer the tools take no room: they replace the row's end text while hovered. */
+@media (hover: hover) {
+  .history-row { position: relative; }
+  .row-tools { position: absolute; right: 0; top: 50%; visibility: hidden; }
+  .history-row:hover .row-tools, .history-row:focus-within .row-tools { visibility: visible; }
+  .history-row:hover .list-end, .history-row:focus-within .list-end { visibility: hidden; }
+}
 .list-rank { width: 22px; flex: none; color: var(--label-3); font-weight: 600; text-align: right; }
 .list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .list-title { font-weight: 500; color: var(--label); transition: color var(--dur); }
@@ -751,3 +766,15 @@ a.np-link:hover .np-title { color: var(--accent); }
 /* Onboarding uses the main UI's scale: 22 for titles, 13 for anything read,
    typed or pressed (rows, fields, buttons, subtitles, errors), 12 for notes.
    Monospace fields sit at 12: the face runs wide enough to match 13. */
+
+/* ---------- Search ---------- */
+
+.search-field { position: relative; max-width: 560px; }
+.search-field svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.search-field .input { width: 100%; height: 40px; padding-left: 38px; font-size: var(--t-body); }
+.search-results { display: flex; flex-direction: column; gap: var(--s4); }
+.search-results .card + .card { margin-top: 0; }
+.search-section .card-head { margin-bottom: var(--s1); }
+.search-all { font-size: var(--t-caption); color: var(--label-2); }
+.search-all:hover { color: var(--accent); }
+.search-row:hover .list-title, .search-row.selected .list-title { color: var(--accent); }

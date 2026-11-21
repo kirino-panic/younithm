@@ -129,7 +129,9 @@ type recentItem struct {
 	// RecordingID is set once the listen is matched to a track.
 	RecordingID *int64 `json:"recording_id"`
 	ReleaseID   *int64 `json:"release_id"`
-	Image       string `json:"image,omitempty"`
+	// Artists are the track's credits in order, so each can link; empty when unmatched.
+	Artists []credit `json:"artists"`
+	Image   string   `json:"image,omitempty"`
 }
 
 func (h *Handler) recent(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +166,19 @@ WHERE s.user_id = 1 ORDER BY s.played_at DESC, s.id DESC LIMIT ?`, limit)
 	rows.Close()
 	for i := range items {
 		it := &items[i]
+		it.Artists = []credit{}
+		if it.RecordingID != nil {
+			cs, err := h.credits(r.Context(), recordingCredits, *it.RecordingID)
+			if err != nil {
+				log.Printf("stats: recent credits: %v", err)
+				apiError(w, 500, "internal error")
+				return
+			}
+			for j := range cs {
+				cs[j].Name = h.disp(r.Context(), names.Artist, cs[j].ID, cs[j].Name)
+			}
+			it.Artists = cs
+		}
 		switch {
 		case it.ReleaseID != nil:
 			it.Image = h.releaseImage(r.Context(), *it.ReleaseID)

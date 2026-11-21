@@ -1,12 +1,14 @@
 // Artist, album and track pages.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronDown, Pencil } from "lucide-react";
-import { ApiError, endpoints, type Chart as ChartData, type ChartPoint, type Credit } from "../api";
+import { ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { ApiError, endpoints, type Chart as ChartData, type ChartPoint, type Credit, type RecordingPage, type Scrobble } from "../api";
 import { useSession } from "../session";
 import { fmtDate, fmtDay, fmtDuration, fmtNum } from "../format";
-import { Cover, Segmented, useData, useEscape } from "../ui";
+import { Cover, Segmented, useData, useEscape, useToast } from "../ui";
 import { EditPanel } from "../admin/EditPanel";
+import { ScrobbleEditor } from "../admin/ScrobbleEditor";
+import { DeleteDialog, useDeleteScrobble } from "../library/Scrobbles";
 
 type Period = keyof ChartData;
 type Kind = "artist" | "release" | "recording";
@@ -386,16 +388,7 @@ export function TrackPage() {
             </Tile>
           </div>
           {admin && !!history.data?.items.length && (
-            <Tile title="Listening history">
-              <Rows empty="">
-                {history.data.items.map((h, i) => (
-                  <div key={i} className="list-row">
-                    <span className="list-main"><span className="list-title num">{fmtDate(h.played_at)}</span></span>
-                    {h.album && <span className="list-end truncate">{h.album}</span>}
-                  </div>
-                ))}
-              </Rows>
-            </Tile>
+            <ListeningHistory items={history.data.items} track={t} onChanged={() => { q.reload(); history.reload(); }} />
           )}
         </div>
         {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} credits={t.artists} links={t.links} raw={t.aliases}
@@ -403,5 +396,46 @@ export function TrackPage() {
           onClose={() => setEditing(false)} onSaved={() => { q.reload(); history.reload(); }} />}
       </div>
     )}</Gate>
+  );
+}
+
+type HistoryRow = { id: number; played_at: string; release_id: number | null; album: string | null };
+
+// The track's scrobbles. Edit and delete show on the row under the pointer.
+function ListeningHistory({ items, track, onChanged }: { items: HistoryRow[]; track: RecordingPage; onChanged: () => void }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState<Scrobble | null>(null);
+  const [removing, setRemoving] = useState<HistoryRow | null>(null);
+  const deleteNow = useDeleteScrobble(onChanged);
+  const line = track.artists.map((a, i) => (a.credited_name || a.name) + (i < track.artists.length - 1 ? a.join_phrase || ", " : "")).join("");
+  const asScrobble = (h: HistoryRow): Scrobble => ({
+    id: h.id, played_at: h.played_at, title: track.title, artist: line, album: h.album, image: track.image,
+    recording_id: track.id, release_id: h.release_id, source: null, matched: true, artists: track.artists,
+  });
+  // Shift skips the confirmation, as on the Scrobbles page.
+  const askDelete = (h: HistoryRow, e: React.MouseEvent) => {
+    if (e.shiftKey) deleteNow(h).catch((err: Error) => toast({ text: err.message }));
+    else setRemoving(h);
+  };
+  // The sheet and dialog sit outside the tile: the tile's backdrop would pin them inside it.
+  return (
+    <>
+    <Tile title="Listening history">
+      <Rows empty="">
+        {items.map((h) => (
+          <div key={h.id} className="list-row history-row">
+            <span className="list-main"><span className="list-title num">{fmtDate(h.played_at)}</span></span>
+            {h.album && <span className="list-end truncate">{h.album}</span>}
+            <span className="row-tools">
+              <button className="btn btn-plain btn-icon" aria-label="Edit scrobble" onClick={() => setEditing(asScrobble(h))}><Pencil size={15} /></button>
+              <button className="btn btn-plain btn-icon btn-danger" aria-label="Delete scrobble" title="Delete (Shift-click skips the confirmation)" onClick={(e) => askDelete(h, e)}><Trash2 size={15} /></button>
+            </span>
+          </div>
+        ))}
+      </Rows>
+    </Tile>
+    {editing && <ScrobbleEditor s={editing} onClose={() => setEditing(null)} onSaved={onChanged} />}
+    {removing && <DeleteDialog count={1} onClose={() => setRemoving(null)} remove={() => deleteNow(removing)} />}
+    </>
   );
 }

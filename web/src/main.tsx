@@ -17,6 +17,7 @@ import { Imports } from "./admin/Imports";
 import { Review } from "./admin/Review";
 import { Library } from "./library/Library";
 import { Scrobbles } from "./library/Scrobbles";
+import { SearchPage } from "./library/Search";
 import { Connections } from "./admin/Connections";
 import { Settings } from "./admin/Settings";
 import { Login, Setup } from "./admin/Auth";
@@ -68,6 +69,7 @@ function AppRoutes() {
           <Route path="scrobbles" element={<Scrobbles />} />
           <Route path="history" element={<Navigate to="/scrobbles" replace />} />
           <Route path="library" element={<Library />} />
+          <Route path="search" element={<SearchPage />} />
         </Route>
         <Route path="login" element={<Login />} />
         <Route path="setup" element={<Setup />} />

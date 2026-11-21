@@ -7,6 +7,7 @@ import { Cover, Segmented, useData } from "../ui";
 import { usePage } from "./PageContext";
 import { useSession } from "../session";
 import type { TileDef, TileType } from "./doc";
+import { ArtistLinks } from "../library/Library";
 
 // Tiles come in a few set sizes (columns of 12 by rows of 52 px), chosen from a
 // menu rather than dragged. Heights are 1, 2, 3, 5 or 10 so tiles stack to equal lengths.
@@ -249,7 +250,7 @@ function TopTile({ t }: { t: TileDef }) {
   );
 }
 
-function MaybeLink({ to, children, ...rest }: { to: string; children: ReactNode; className?: string; style?: React.CSSProperties }) {
+function MaybeLink({ to, children, ...rest }: { to: string; children: ReactNode; className?: string; style?: React.CSSProperties; "aria-label"?: string }) {
   return to ? <Link to={to} {...rest}>{children}</Link> : <div {...rest}>{children}</div>;
 }
 
@@ -380,16 +381,22 @@ function RecentTile({ t }: { t: TileDef }) {
       <Title>Recent</Title>
       {error ? <Empty>Hidden</Empty> : !all.length ? <Empty /> : (
         <div ref={ref} className="tile-body list list-fill">
-          {items.map((l) => (
-            <MaybeLink key={l.id} to={l.recording_id ? `/track/${l.recording_id}` : ""} className={`list-row${compact ? " compact" : ""}`}>
-              <Cover name={l.album || l.title} src={l.image} size={compact ? 24 : 36} />
-              <span className="list-main">
-                <span className="list-title truncate">{l.title}</span>
-                <span className="list-sub truncate">{l.artist}</span>
-              </span>
-              <span className="list-end">{fmtAgo(l.played_at)}</span>
-            </MaybeLink>
-          ))}
+          {items.map((l) => {
+            const track = l.recording_id ? `/track/${l.recording_id}` : "";
+            return (
+              // The cover opens the album, the title the track, each artist its own page.
+              <div key={l.id} className={`list-row recent-row${compact ? " compact" : ""}`}>
+                <MaybeLink to={l.release_id ? `/album/${l.release_id}` : track} className="recent-cover" aria-label={l.album || l.title}>
+                  <Cover name={l.album || l.title} src={l.image} size={compact ? 24 : 36} />
+                </MaybeLink>
+                <span className="list-main">
+                  <MaybeLink to={track} className="list-title truncate">{l.title}</MaybeLink>
+                  <span className="list-sub truncate"><ArtistLinks artists={l.artists} fallback={l.artist} /></span>
+                </span>
+                <span className="list-end">{fmtAgo(l.played_at)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </>
