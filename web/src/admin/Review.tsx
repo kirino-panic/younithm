@@ -74,8 +74,9 @@ function ReviewCard({ item, act }: { item: ReviewItem; act: Act }) {
     e.preventDefault();
     if (url.trim()) act(id, () => endpoints.manualLink(id, url.trim()), "Linked").then(() => setUrl(""), () => {});
   };
+  const by = [item.artist, item.album, item.duration_ms ? fmtDuration(item.duration_ms) : ""].filter(Boolean).join(" · ");
   return (
-    <Group title={<>{item.title} <span className="faint" style={{ fontWeight: 400 }}>{[item.artist, item.album, item.duration_ms ? fmtDuration(item.duration_ms) : ""].filter(Boolean).join(" · ")}</span></>}>
+    <Group title={<>{item.title} <span className="faint" style={{ fontWeight: 400 }}>{by}</span></>} tip={[item.title, by].filter(Boolean).join(" · ")}>
       {item.candidates.slice(0, 3).map((c) => {
         const rels = c.release_details || [];
         const link = providerURL(c.provider, c.provider_id);
@@ -87,11 +88,12 @@ function ReviewCard({ item, act }: { item: ReviewItem; act: Act }) {
                 {c.disambiguation && <span className="muted" style={{ fontWeight: 400 }}> ({c.disambiguation})</span>}
                 <span className="faint num" style={{ fontWeight: 400 }}> {fmtDuration(c.duration_ms)}</span>
               </span>
-              <span className="list-sub truncate">{c.artists?.join(", ")}</span>
+              <span className="list-sub truncate" title={c.artists?.join(", ")}>{c.artists?.join(", ")}</span>
               <span className="list-sub" style={{ display: "grid", gap: 1 }}>
-                {!c.known ? <span className="faint">No details fetched</span> : !rels.length ? <span className="faint">No releases listed</span> : rels.map((r, i) => (
-                  <span key={i} className="truncate">{r.title}<span className="faint">{[r.date?.slice(0, 4), r.type, r.status && r.status !== "official" ? r.status : ""].filter(Boolean).map((x) => ` · ${x}`).join("")}</span></span>
-                ))}
+                {!c.known ? <span className="faint">No details fetched</span> : !rels.length ? <span className="faint">No releases listed</span> : rels.map((r, i) => {
+                  const meta = [r.date?.slice(0, 4), r.type, r.status && r.status !== "official" ? r.status : ""].filter(Boolean).map((x) => ` · ${x}`).join("");
+                  return <span key={i} className="truncate" title={r.title + meta}>{r.title}<span className="faint">{meta}</span></span>;
+                })}
                 {(c.release_count || 0) > rels.length && <span className="faint">+{(c.release_count || 0) - rels.length} more releases</span>}
               </span>
               <span style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>

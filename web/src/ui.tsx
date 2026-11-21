@@ -39,10 +39,11 @@ export function SettingRow({ label, children }: { label: ReactNode; children: Re
 }
 
 // A titled group of rows, as in iOS Settings.
-export function Group({ title, action, children }: { title?: ReactNode; action?: ReactNode; children: ReactNode }) {
+// tip is the header's full text, shown on hover when it is cut short.
+export function Group({ title, tip, action, children }: { title?: ReactNode; tip?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="group">
-      {(title || action) && <div className="group-head"><h3 className="group-title">{title}</h3>{action}</div>}
+      {(title || action) && <div className="group-head"><h3 className="group-title" title={tip}>{title}</h3>{action}</div>}
       <div className="group-list">{children}</div>
     </section>
   );
