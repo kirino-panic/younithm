@@ -77,7 +77,7 @@ func (e *env) snapshot() string {
 	e.t.Helper()
 	var sb strings.Builder
 	for _, tb := range []string{"scrobble", "artist", "recording", "release", "recording_artist", "release_artist",
-		"recording_release", "alias", "external_link"} {
+		"recording_release", "alias", "external_link", "artist_split"} {
 		rows, err := e.db.Query(`SELECT * FROM ` + tb + ` ORDER BY 1, 2`)
 		if err != nil {
 			e.t.Fatal(err)

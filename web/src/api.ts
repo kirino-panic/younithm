@@ -284,7 +284,11 @@ export const endpoints = {
     api.get<{ items: MergeCandidate[] }>(`/api/v1/admin/entities/${kind}/candidates?q=${encodeURIComponent(q)}`),
   mergeCandidates: (kind: string, id: number, q: string) =>
     api.get<{ items: MergeCandidate[] }>(`/api/v1/admin/entities/${kind}/${id}/merge-candidates${q ? `?q=${encodeURIComponent(q)}` : ""}`),
-  merge: (kind: string, id: number, into: number) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/merge`, { into }),
+  // once: merge what is there now without sending later listens under the old name to the kept entry.
+  merge: (kind: string, id: number, into: number, once = false) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/merge`, { into, once }),
+  // Deletes an artist, album or track and every scrobble of it.
+  deleteEntity: (kind: string, id: number) => api.del<EditResult>(`/api/v1/admin/entities/${kind}/${id}`),
+  splitArtist: (id: number, artists: CreditIn[]) => api.post<EditResult>(`/api/v1/admin/artists/${id}/split`, { artists }),
   undo: (editId: number) => api.post(`/api/v1/admin/edits/${editId}/undo`),
   editScrobble: (id: number, body: ScrobbleEditBody) => api.patch<EditResult>(`/api/v1/admin/scrobbles/${id}`, body),
   deleteScrobble: (id: number) => api.del<EditResult>(`/api/v1/admin/scrobbles/${id}`),

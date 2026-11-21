@@ -27,10 +27,11 @@ No network calls; this runs at ingest and import.
 
 1. **Credits.** Take the client's artist list (`artist_names`), else MusicBrainz mapping credits, else the single artist string as one artist. A listen with no artist gets "Unknown Artist".
 2. **Artist ids** pair with credits by position only when both lists have the same length.
-3. **Each credit** is found by any of its ids. Ids that point at two different artists never merge them: both are kept and a candidate is recorded. With no id match, the **single-match rule** applies: link by normalised name only if exactly one artist has that name and none of its ids from the same provider conflict. That artist stays *unverified* until an id confirms it. Otherwise a new unverified artist is created.
-4. **Recording**: by its ids, then by alias, then by first artist and exact title; else created. Every listen with a title ends with a recording; a titled listen that maps to none is refused.
-5. **Album**: by its ids, then by title; else created. Album artists come only from album-artist data, never from the track's artists, so a compilation does not split into one album per track artist. A listen with an album title but no album ids or artist attaches to the one album with that title; if several share it, a candidate is recorded instead. A listen with no album gets no release.
-6. **Display** uses credit names with their join phrases.
+3. **Split artists.** A credit whose normalised name an admin split into several artists (see [Editing](editing.md#split)) becomes those artists, in order, with the split's join phrases. Nothing is split by the shape of a name.
+4. **Each credit** is found by any of its ids. Ids that point at two different artists never merge them: both are kept and a candidate is recorded. With no id match, the **single-match rule** applies: link by normalised name only if exactly one artist has that name and none of its ids from the same provider conflict. That artist stays *unverified* until an id confirms it. Otherwise a new unverified artist is created.
+5. **Recording**: by its ids, then by alias, then by first artist and exact title; else created. Every listen with a title ends with a recording; a titled listen that maps to none is refused.
+6. **Album**: by its ids, then by title; else created. Album artists come only from album-artist data, never from the track's artists, so a compilation does not split into one album per track artist. A listen with an album title but no album ids or artist attaches to the one album with that title; if several share it, a candidate is recorded instead. A listen with no album gets no release.
+7. **Display** uses credit names with their join phrases.
 
 ## What enrichment adds
 

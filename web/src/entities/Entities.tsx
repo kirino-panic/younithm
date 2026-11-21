@@ -119,6 +119,62 @@ function Credits({ artists }: { artists: Credit[] }) {
   );
 }
 
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE = 8 << 20;
+
+// For the admin, an image file dropped on an artist's or album's cover
+// replaces it at once (one undoable edit, as Choose… in the edit panel does).
+function DropCover({ kind, id, round, onChanged, children }: { kind: "artist" | "release"; id: number; round?: boolean; onChanged: () => void; children: ReactNode }) {
+  const { admin } = useSession();
+  const toast = useToast();
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // A file dropped just beside the cover would otherwise open in the tab.
+  useEffect(() => {
+    if (!admin) return;
+    const stop = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); };
+    window.addEventListener("dragover", stop);
+    window.addEventListener("drop", stop);
+    return () => { window.removeEventListener("dragover", stop); window.removeEventListener("drop", stop); };
+  }, [admin]);
+  if (!admin) return <>{children}</>;
+
+  const isFile = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
+  const enter = (e: React.DragEvent) => {
+    if (!isFile(e) || busy) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setOver(true);
+  };
+  const drop = async (e: React.DragEvent) => {
+    if (!isFile(e)) return;
+    e.preventDefault();
+    setOver(false);
+    const f = e.dataTransfer.files[0];
+    if (!f || busy) return;
+    if (!IMAGE_TYPES.includes(f.type)) { toast({ text: "Drop a JPEG, PNG, WebP or GIF image." }); return; }
+    if (f.size > MAX_IMAGE) { toast({ text: "Choose an image up to 8 MB." }); return; }
+    setBusy(true);
+    try {
+      const res = await endpoints.setImage(kind, id, f);
+      onChanged();
+      toast({ text: "Image replaced", action: { label: "Undo", run: () => endpoints.undo(res.edit_id).then(onChanged).catch(() => toast({ text: "Couldn't undo." })) } });
+    } catch (err) {
+      toast({ text: err instanceof ApiError && err.message ? err.message : "Couldn't replace the image." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={`drop-cover${round ? " round" : ""}${over ? " over" : ""}${busy ? " busy" : ""}`}
+      onDragEnter={enter} onDragOver={enter} onDrop={drop}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false); }}>
+      {children}
+      <span className="drop-hint" aria-hidden>{busy ? "Uploading…" : "Drop to replace"}</span>
+    </div>
+  );
+}
+
 // The header all three pages share: cover, title, one subtitle line, facts, links.
 function Hero({ cover, title, sub, keepSub, note, meta, links, onEdit }: {
   // keepSub holds the subtitle's line open when there is none, so the title stays put.
@@ -169,7 +225,7 @@ export function ArtistPage() {
     <Gate q={q}>{(a) => (
       <div className="page">
         <Hero
-          cover={<Cover name={a.name} src={a.image} size={148} round />}
+          cover={<DropCover kind="artist" id={a.id} round onChanged={q.reload}><Cover name={a.name} src={a.image} size={148} round /></DropCover>}
           title={a.name}
           sub={a.aliases.length > 0 && <>Also known as {a.aliases.join(", ")}</>}
           keepSub
@@ -246,7 +302,7 @@ export function AlbumPage() {
       return (
         <div className="page">
           <Hero
-            cover={<Cover name={al.title} src={al.image} size={148} />}
+            cover={<DropCover kind="release" id={al.id} onChanged={q.reload}><Cover name={al.title} src={al.image} size={148} /></DropCover>}
             title={al.title}
             sub={al.artists.length > 0 && <Credits artists={al.artists} />}
             meta={[cap(al.type) || "Album", year(al.date), al.tracks.length > 0 && `${al.tracks.length} ${al.tracks.length === 1 ? "track" : "tracks"}`]}

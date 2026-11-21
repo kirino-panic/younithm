@@ -278,12 +278,13 @@ a.list-row:hover .list-title { color: var(--accent); }
 /* Row tools (edit, delete) show on the row under the pointer, or with keyboard focus. Touch screens always show them. */
 /* Zero height: the 32px buttons overflow the row evenly instead of making it taller. */
 .row-tools { display: flex; flex: none; gap: 2px; height: 0; align-items: center; }
-/* With a pointer the tools take no room: they replace the row's end text while hovered. */
+/* With a pointer the tools take no room: they swap in for the row's end text
+   while hovered. Swapping with display (not visibility under an overlay)
+   relays the whole row, so no browser leaves half-painted text behind. */
 @media (hover: hover) {
-  .history-row { position: relative; }
-  .row-tools { position: absolute; right: 0; top: 50%; visibility: hidden; }
-  .history-row:hover .row-tools, .history-row:focus-within .row-tools { visibility: visible; }
-  .history-row:hover .list-end, .history-row:focus-within .list-end { visibility: hidden; }
+  .row-tools { display: none; }
+  .history-row:hover .row-tools, .history-row:focus-within .row-tools { display: flex; }
+  .history-row:hover .list-end, .history-row:focus-within .list-end { display: none; }
 }
 .list-rank { width: 22px; flex: none; color: var(--label-3); font-weight: 600; text-align: right; }
 .list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -400,6 +401,15 @@ a.list-row:hover .list-title { color: var(--accent); }
 .hero-sub { color: var(--label-2); font-size: var(--t-body); }
 .hero-sub-keep { min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero-edit { align-self: flex-start; flex: none; }
+/* Admin: drop an image on the cover to replace it. */
+.drop-cover { position: relative; flex: none; border-radius: var(--r-sm); }
+.drop-cover.round { border-radius: 50%; }
+.drop-hint {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: var(--s3); text-align: center;
+  border-radius: inherit; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: var(--t-footnote); font-weight: 600;
+  outline: 2px dashed var(--accent); outline-offset: 3px; opacity: 0; pointer-events: none; transition: opacity var(--dur);
+}
+.drop-cover.over .drop-hint, .drop-cover.busy .drop-hint { opacity: 1; }
 .credit { color: var(--label); }
 .credit:hover { color: var(--accent); }
 .disc-label { margin: var(--s3) 0 var(--s1); }

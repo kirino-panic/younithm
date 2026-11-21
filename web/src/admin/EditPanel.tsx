@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, Star, X } from "lucide-react";
 import { endpoints, ApiError, withStepUp, type Credit, type CreditIn, type MergeCandidate } from "../api";
-import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, usePasswordPrompt, useToast } from "../ui";
+import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, usePasswordPrompt, useToast } from "../ui";
 
 type Kind = "recording" | "release" | "artist";
 const LABELS: Record<Kind, string> = { recording: "track", release: "album", artist: "artist" };
@@ -30,6 +30,10 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const navigate = useNavigate();
   const [mergeInto, setMergeInto] = useState<{ id: number; name: string } | null>(null);
   const [merging, setMerging] = useState(false);
+  // Off: merge just what is here now; later listens under this name stay apart.
+  const [remember, setRemember] = useState(true);
+  const [splitting, setSplitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [akaOpen, setAkaOpen] = useState(false);
   // Credited names are rare: the section opens by itself only when one is set.
   const [creditedOpen, setCreditedOpen] = useState(() => (credits || []).some((c) => c.credited_name));
@@ -63,7 +67,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
     if (!mergeInto) return;
     setBusy(true); setErr("");
     try {
-      const res = await withStepUp(() => endpoints.merge(kind, id, mergeInto.id), ask);
+      const res = await withStepUp(() => endpoints.merge(kind, id, mergeInto.id, !remember), ask);
       onClose();
       navigate(ROUTES[kind] + mergeInto.id, { replace: true });
       toast({
@@ -79,6 +83,26 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       setErr(e instanceof ApiError ? e.message : "Couldn't merge.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Deletes this entry and every scrobble of it, then leaves its page (it's gone).
+  const remove = async () => {
+    try {
+      const res = await withStepUp(() => endpoints.deleteEntity(kind, id), ask);
+      onClose();
+      navigate("/library", { replace: true });
+      toast({
+        text: `Deleted ${override || name}`,
+        action: {
+          label: "Undo",
+          run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
+            .then(() => navigate(ROUTES[kind] + id))
+            .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
+        },
+      });
+    } catch (e) {
+      throw new Error(e instanceof ApiError && e.message ? e.message : "Couldn't delete.");
     }
   };
 
@@ -146,7 +170,12 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   return (
     <Sheet wide title={`Edit ${LABELS[kind]}`} onClose={onClose}
       footer={<>
-        <button className="btn btn-plain foot-start" onClick={() => setMerging(true)}>Merge…</button>
+        <span className="foot-start" style={{ display: "flex", gap: 4 }}>
+          <button className="btn btn-plain" onClick={() => setMerging(true)}>Merge…</button>
+          {kind === "artist" && <button className="btn btn-plain" onClick={() => setSplitting(true)}>Split…</button>}
+          <button className="btn btn-plain btn-danger" title="Delete (Shift-click skips the confirmation)"
+            onClick={(e) => (e.shiftKey ? remove().catch((err: Error) => setErr(err.message)) : setDeleting(true))}>Delete</button>
+        </span>
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" disabled={busy} onClick={save}>Save</button>
       </>}>
@@ -318,9 +347,20 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         <PickDialog kind={kind} title={`Merge ${LABELS[kind]}`} busy={busy} err={err}
           load={(q) => endpoints.mergeCandidates(kind, id, q)} action="Merge" danger
           summary={(c) => <>Merge <strong style={{ color: "var(--label)" }}>{override || name}</strong> into <strong style={{ color: "var(--label)" }}>{c.name}</strong></>}
-          onCancel={() => { setMerging(false); setMergeInto(null); setErr(""); }}
-          selected={mergeInto} onSelect={setMergeInto} onConfirm={merge} />
+          onCancel={() => { setMerging(false); setMergeInto(null); setErr(""); setRemember(true); }}
+          selected={mergeInto} onSelect={setMergeInto} onConfirm={merge}
+          options={
+            <div className="edit-row">
+              <span className="grow" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
+                Apply changes to all further scrobbles
+                <InfoTip label="About applying to further scrobbles" text="Turn this off to only apply this change as a one-off." />
+              </span>
+              <Switch checked={remember} onChange={setRemember} label="Apply changes to all further scrobbles" />
+            </div>
+          } />
       )}
+      {deleting && <DeleteEntityDialog name={override || name} onCancel={() => setDeleting(false)} remove={remove} />}
+      {splitting && <SplitDialog id={id} name={override || name} onCancel={() => setSplitting(false)} onDone={onClose} />}
     </Sheet>
   );
 }
@@ -328,10 +368,11 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 // Picks one entry from likely duplicates, then a search over every name entries
 // go by. Rows carry what tells look-alikes apart. Used to merge an entry and to
 // re-link a single scrobble.
-export function PickDialog({ kind, title, intro, load, initialQuery = "", summary, action, danger, busy, err, selected, onSelect, onCancel, onConfirm }: {
+export function PickDialog({ kind, title, intro, load, initialQuery = "", summary, action, danger, busy, err, selected, onSelect, onCancel, onConfirm, options }: {
   kind: Kind; title: string; intro?: string; load: (q: string) => Promise<{ items: MergeCandidate[] }>; initialQuery?: string;
   summary: (picked: { id: number; name: string }) => ReactNode; action: string; danger?: boolean; busy: boolean; err: string; selected: { id: number; name: string } | null;
   onSelect: (c: MergeCandidate | null) => void; onCancel: () => void; onConfirm: () => void;
+  options?: ReactNode; // shown above the buttons
 }) {
   const label = LABELS[kind];
   const [q, setQ] = useState(initialQuery);
@@ -383,6 +424,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
             </button>
           ))}
       </div>
+      {options}
       {err && <p className="error-text">{err}</p>}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <span className="grow truncate muted" style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
@@ -390,6 +432,119 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
         </span>
         <button className="btn" onClick={onCancel}>Cancel</button>
         <button className={`btn btn-primary${danger ? " btn-danger" : ""}`} disabled={!selected || busy} onClick={onConfirm}>{action}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// Splits an artist whose name is really several ("Danny Brown & Underscores")
+// into those artists. Every track and album credited to it is credited to them
+// instead, and later listens credited that way get them too.
+function SplitDialog({ id, name, onCancel, onDone }: { id: number; name: string; onCancel: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const ask = usePasswordPrompt();
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<CreditRow[]>([]);
+  const [adding, setAdding] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const searchArtists = useCallback((q: string) => endpoints.search("artist", q).then((r) => r.items.filter((a) => a.id !== id)), [id]);
+  const move = (i: number, d: number) => setRows((a) => {
+    const n = [...a];
+    [n[i], n[i + d]] = [n[i + d], n[i]];
+    return n;
+  });
+
+  const split = async () => {
+    setBusy(true); setErr("");
+    try {
+      const body: CreditIn[] = rows.map((a) => ({ ...(a.id ? { artist_id: a.id } : { name: a.name }), join_phrase: a.join }));
+      const res = await withStepUp(() => endpoints.splitArtist(id, body), ask);
+      onDone();
+      // This artist is gone: show the first of its parts instead (looked up
+      // by name when it was just created).
+      let to = rows[0].id;
+      if (!to) to = (await endpoints.search("artist", rows[0].name).catch(() => ({ items: [] }))).items.find((a) => a.name === rows[0].name)?.id;
+      navigate(to ? `/artist/${to}` : "/library", { replace: true });
+      toast({
+        text: `Split ${name}`,
+        action: {
+          label: "Undo",
+          run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
+            .then(() => navigate(`/artist/${id}`, { replace: true }))
+            .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
+        },
+      });
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Couldn't split.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal wide onClose={onCancel}>
+      <div style={{ display: "grid", gap: 4 }}>
+        <h3 style={{ fontSize: 17 }}>Split artist</h3>
+        <p className="muted" style={{ fontSize: 13 }}>Select which artists you'd like to split this artist into.</p>
+      </div>
+      <div style={{ display: "grid", gap: 4 }}>
+        {rows.map((a, i) => (
+          <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
+            <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
+            {i < rows.length - 1 && (
+              <input className="input" style={{ width: 64 }} aria-label={`Between ${a.name} and the next artist`} placeholder=", "
+                value={a.join} onChange={(e) => setRows((x) => x.map((r, j) => (j === i ? { ...r, join: e.target.value } : r)))} />
+            )}
+            {rows.length > 1 && <>
+              <button className="btn btn-icon btn-plain" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={15} /></button>
+              <button className="btn btn-icon btn-plain" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDown size={15} /></button>
+            </>}
+            <button className="btn btn-icon btn-plain" aria-label={`Remove ${a.name}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))}><X size={15} /></button>
+          </div>
+        ))}
+        {adding ? (
+          <Autocomplete autoFocus label="Add an artist" placeholder="Artist name" search={searchArtists} allowNew
+            newLabel={(q) => `Add “${q}” as a new artist`}
+            onPick={(v) => {
+              setAdding(rows.length < 1); // keep the field open until there are two
+              if (v.id && rows.some((a) => a.id === v.id)) return;
+              if (!v.id && v.name.trim().toLowerCase() === name.trim().toLowerCase()) return;
+              setRows((x) => [...x.map((r, j) => (j === x.length - 1 && !r.join ? { ...r, join: " & " } : r)), { id: v.id, name: v.name, join: "", credited: "" }]);
+            }} />
+        ) : (
+          <button className="btn edit-add" onClick={() => setAdding(true)}><Plus size={15} /> Add artist</button>
+        )}
+      </div>
+      {err && <p className="error-text">{err}</p>}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn btn-primary btn-danger" disabled={rows.length < 2 || busy} onClick={split}>Split</button>
+      </div>
+    </Modal>
+  );
+}
+
+function DeleteEntityDialog({ name, onCancel, remove }: { name: string; onCancel: () => void; remove: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const go = async () => {
+    setBusy(true); setErr("");
+    try {
+      await remove();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't delete.");
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal onClose={onCancel}>
+      <h3 style={{ fontSize: 17 }}>Delete {name}?</h3>
+      <p className="muted" style={{ fontSize: 13 }}>All scrobbles associated with {name} will be deleted.</p>
+      <p className="muted" style={{ fontSize: 13 }}>Tip: Holding Shift while clicking delete skips this dialogue box.</p>
+      {err && <p className="error-text" role="alert">{err}</p>}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn btn-primary btn-danger" disabled={busy} onClick={go}>Delete</button>
       </div>
     </Modal>
   );

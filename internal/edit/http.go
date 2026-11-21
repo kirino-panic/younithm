@@ -92,6 +92,8 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 			r.Use(auth.RequireStepUp)
 			r.Post(p+"/scrobbles/bulk/apply", h.bulkApply)
 			r.Post(p+"/entities/{kind}/{id}/merge", h.merge)
+			r.Post(p+"/artists/{id}/split", h.split)
+			r.Delete(p+"/entities/{kind}/{id}", h.deleteEntity)
 		})
 	})
 }
@@ -327,11 +329,38 @@ func (h *handlers) merge(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Into int64 `json:"into"`
+		Once bool  `json:"once"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	res, err := h.ed.Merge(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Into)
+	res, err := h.ed.MergeWith(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Into, MergeOptions{Once: in.Once})
+	h.namesChanged(err)
+	done(w, res, err)
+}
+
+func (h *handlers) deleteEntity(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	res, err := h.ed.DeleteEntity(r.Context(), actor(r), chi.URLParam(r, "kind"), id)
+	h.namesChanged(err)
+	done(w, res, err)
+}
+
+func (h *handlers) split(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Artists []CreditIn `json:"artists"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.Split(r.Context(), actor(r), id, in.Artists)
 	h.namesChanged(err)
 	done(w, res, err)
 }

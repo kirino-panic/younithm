@@ -145,8 +145,16 @@ func (r *Resolver) resolve(ctx context.Context, q DB, in Input) (recID, relID in
 			}
 		}()
 	}
+	fixed, err := expandSplits(ctx, q, &in)
+	if err != nil {
+		return 0, 0, err
+	}
 	aids := make([]int64, len(in.Credits))
 	for i, c := range in.Credits {
+		if fixed[i] != 0 {
+			aids[i] = fixed[i]
+			continue
+		}
 		cand := ""
 		if i < len(in.CandArtistMBIDs) {
 			cand = in.CandArtistMBIDs[i]
@@ -163,6 +171,80 @@ func (r *Resolver) resolve(ctx context.Context, q DB, in Input) (recID, relID in
 }
 
 // ---- artists ----
+
+// expandSplits replaces each credit whose name an admin split into several
+// artists (the artist_split table) with those artists, and returns their ids
+// by position in the new credit list (0 = resolve as usual). A rule with a
+// missing position, or naming a deleted artist, is ignored.
+func expandSplits(ctx context.Context, q DB, in *Input) ([]int64, error) {
+	var out []Credit
+	var fixed []int64
+	var cands []string
+	expanded := false
+	for i, c := range in.Credits {
+		parts, err := splitRule(ctx, q, c.Name)
+		if err != nil {
+			return nil, err
+		}
+		if len(parts) == 0 {
+			out = append(out, c)
+			fixed = append(fixed, 0)
+			if i < len(in.CandArtistMBIDs) {
+				cands = append(cands, in.CandArtistMBIDs[i])
+			} else {
+				cands = append(cands, "")
+			}
+			continue
+		}
+		expanded = true
+		for j, p := range parts {
+			if j == len(parts)-1 {
+				p.credit.JoinPhrase = c.JoinPhrase
+			}
+			out = append(out, p.credit)
+			fixed = append(fixed, p.id)
+			cands = append(cands, "")
+		}
+	}
+	if expanded {
+		in.Credits, in.CandArtistMBIDs = out, cands
+	}
+	return fixed, nil
+}
+
+type splitPart struct {
+	id     int64
+	credit Credit
+}
+
+func splitRule(ctx context.Context, q DB, name string) ([]splitPart, error) {
+	key := ArtistAliasKey(name)
+	if key == "" {
+		return nil, nil
+	}
+	rows, err := q.QueryContext(ctx, `SELECT s.position, a.id, a.name, COALESCE(s.join_phrase, '')
+		FROM artist_split s JOIN artist a ON a.id = s.artist_id WHERE s.raw_string=? ORDER BY s.position`, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []splitPart
+	for rows.Next() {
+		var pos int
+		var p splitPart
+		if err := rows.Scan(&pos, &p.id, &p.credit.Name, &p.credit.JoinPhrase); err != nil {
+			return nil, err
+		}
+		if pos != len(out) {
+			return nil, rows.Close()
+		}
+		out = append(out, p)
+	}
+	if len(out) < 2 {
+		return nil, rows.Err()
+	}
+	return out, rows.Err()
+}
 
 func (r *Resolver) resolveArtist(ctx context.Context, q DB, c Credit, candMBID string) (int64, error) {
 	var ids []idRef

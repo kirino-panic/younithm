@@ -16,6 +16,16 @@ Every edit writes its row-level changes and one `edit_log` entry in the same tra
 
 Merging A into B (same kind) moves A's scrobbles, credits, album memberships, links and aliases to B, deletes A, and adds A's names as aliases of B. One undoable entry.
 
+A merge with `once` (the merge dialog's "Apply changes to all further scrobbles" switched off) moves what A has now but drops A's names, aliases and catalogue links instead of giving them to B, so a later listen named or linked like A makes a new entry.
+
+## Split
+
+Splitting artist A ("Danny Brown & Underscores") into artists B and C replaces A's credit on every track and album with B and C, in A's place in the credit list (an artist already credited there keeps its row), and deletes A. The join phrases between B and C come from the split; the last takes A's. A's name, display name and aliases become rules in `artist_split`, so later listens credited that way resolve to B and C. Merging B away repoints its rules; a one-time merge drops them. Logged with the merge scope, so it and its undo need step-up.
+
+## Delete
+
+Deleting an entity deletes every scrobble of it. A track takes its scrobbles. An album takes the scrobbles played from it and the tracks that were only on it and have no scrobbles left. An artist takes the scrobbles of every track it is credited on, the tracks and albums credited to it alone, and its credit on shared ones; a scrobble left on a deleted album loses its album. Aliases, links and split rules go too, so a later listen with the same name makes a new entry. At most 50,000 scrobbles; logged as bulk, so it and its undo need step-up.
+
 ## Aliases
 
 Aliases map a normalised name (lowercase, trimmed, collapsed whitespace) to an entity:
@@ -56,7 +66,9 @@ Under `/api/v1/admin`.
 | `PUT /entities/{kind}/{id}/links` | Link a provider URL |
 | `DELETE /entities/{kind}/{id}/links/{provider}` | Remove a link |
 | `POST`/`DELETE /entities/{kind}/{id}/image` | Upload or reset an image override |
-| `POST /entities/{kind}/{id}/merge` | `{into}` (step-up) |
+| `POST /entities/{kind}/{id}/merge` | `{into, once}` (step-up) |
+| `DELETE /entities/{kind}/{id}` | Delete with every scrobble of it (step-up) |
+| `POST /artists/{id}/split` | `{artists}`: two or more, by `artist_id` or `name`, with `join_phrase` (step-up) |
 | `GET /entities/{kind}/{id}/merge-candidates` | Likely duplicates of this entity |
 | `GET /entities/{kind}/candidates` | Search for merge targets |
 | `POST /recordings/{id}/releases` | Add to an album |
