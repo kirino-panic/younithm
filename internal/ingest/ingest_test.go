@@ -264,3 +264,71 @@ func TestTitledListenWithoutRecordingIsRefused(t *testing.T) {
 		t.Fatalf("untitled listen: %v", err)
 	}
 }
+
+func TestUserListens(t *testing.T) {
+	h, _ := setup(t)
+	for i, title := range []string{"One", "Two", "Three"} {
+		do(h, "POST", "/1/submit-listens", single(1700000000+int64(i)*300, "Artist", title), "tok")
+	}
+	type resp struct {
+		Payload struct {
+			Count   int `json:"count"`
+			Listens []struct {
+				ListenedAt    int64 `json:"listened_at"`
+				TrackMetadata struct {
+					ArtistName  string `json:"artist_name"`
+					TrackName   string `json:"track_name"`
+					ReleaseName string `json:"release_name"`
+				} `json:"track_metadata"`
+			} `json:"listens"`
+			Latest int64 `json:"latest_listen_ts"`
+		} `json:"payload"`
+	}
+	get := func(path, token string) resp {
+		t.Helper()
+		w := do(h, "GET", path, "", token)
+		if w.Code != 200 {
+			t.Fatalf("%s: %d %s", path, w.Code, w.Body.String())
+		}
+		var out resp
+		json.Unmarshal(w.Body.Bytes(), &out)
+		return out
+	}
+	all := get("/1/user/admin/listens", "tok")
+	if all.Payload.Count != 3 || all.Payload.Listens[0].TrackMetadata.TrackName != "Three" ||
+		all.Payload.Listens[0].TrackMetadata.ReleaseName != "Alb" || all.Payload.Latest != 1700000600 {
+		t.Fatalf("all: %+v", all)
+	}
+	// Both bounds are exclusive, as in ListenBrainz.
+	win := get("/apis/listenbrainz/1/user/admin/listens?min_ts=1700000000&max_ts=1700000600", "tok")
+	if win.Payload.Count != 1 || win.Payload.Listens[0].ListenedAt != 1700000300 {
+		t.Fatalf("window: %+v", win)
+	}
+	if c := get("/1/user/admin/listens?count=2", "tok"); c.Payload.Count != 2 {
+		t.Fatalf("count: %+v", c)
+	}
+	if w := do(h, "GET", "/1/user/admin/listens?min_ts=x", "", "tok"); w.Code != 400 {
+		t.Fatalf("bad ts: %d", w.Code)
+	}
+}
+
+func TestUserListensPrivateList(t *testing.T) {
+	d, _ := db.Open(filepath.Join(t.TempDir(), "cfg"))
+	t.Cleanup(func() { d.Close() })
+	_ = db.Migrate(d)
+	deny := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) })
+	}
+	h := New(d, d, Options{Auth: StaticTokenAuth{Token: "tok"}, ListGate: deny})
+	r := chi.NewRouter()
+	h.MountRoot(r)
+	do(r, "POST", "/1/submit-listens", single(1700000000, "Artist", "Song"), "tok")
+	if w := do(r, "GET", "/1/user/admin/listens", "", "tok"); w.Code != 200 || !strings.Contains(w.Body.String(), `"count":1`) {
+		t.Fatalf("token reads private list: %d %s", w.Code, w.Body.String())
+	}
+	for _, tok := range []string{"", "bad"} {
+		if w := do(r, "GET", "/1/user/admin/listens", "", tok); w.Code != 200 || !strings.Contains(w.Body.String(), `"count":0`) {
+			t.Fatalf("no token %q: %d %s", tok, w.Code, w.Body.String())
+		}
+	}
+}

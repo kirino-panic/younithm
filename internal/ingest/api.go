@@ -92,6 +92,7 @@ func (h *Handler) MountRoot(r chi.Router) {
 	for _, p := range []string{"/1", "/apis/listenbrainz/1"} {
 		r.Post(p+"/submit-listens", h.submitListens)
 		r.Get(p+"/validate-token", h.validateToken)
+		r.Get(p+"/user/{user}/listens", h.userListens)
 	}
 }
 
