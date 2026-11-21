@@ -109,7 +109,7 @@ function Credits({ artists }: { artists: Credit[] }) {
     <>
       {artists.map((a, i) => (
         <span key={a.id}>
-          <Link to={`/artist/${a.id}`} className="credit">{a.name}</Link>
+          <Link to={`/artist/${a.id}`} className="credit">{a.credited_name || a.name}</Link>
           {i < artists.length - 1 && (a.join_phrase || ", ")}
         </span>
       ))}
@@ -240,7 +240,7 @@ export function AlbumPage() {
     <Gate q={q}>{(al) => {
       const played = al.tracks.filter((t) => t.plays > 0).length;
       const discs = [...new Set(al.tracks.map((t) => t.disc))];
-      const albumArtists = al.artists.map((a) => a.name).join(", ");
+      const albumArtists = al.artists.map((a, i) => (a.credited_name || a.name) + (i < al.artists.length - 1 ? a.join_phrase || ", " : "")).join("");
       return (
         <div className="page">
           <Hero
@@ -334,7 +334,7 @@ function NamesTitle({ title, others }: { title: string; others: OtherName[] }) {
 // The track's other spellings and where each comes from. The spelling already
 // shown is left out.
 function trackNames(names: { source: string; title: string; artists?: string }[], title: string, artists: Credit[]): OtherName[] {
-  const line = artists.map((a, i) => a.name + (i < artists.length - 1 ? a.join_phrase || ", " : "")).join("");
+  const line = artists.map((a, i) => (a.credited_name || a.name) + (i < artists.length - 1 ? a.join_phrase || ", " : "")).join("");
   const other = new Map<string, { title: string; by: string; from: string[] }>();
   for (const n of names) {
     const by = n.artists && n.artists !== line ? n.artists : "";

@@ -59,6 +59,9 @@ type Artist struct {
 	// JoinPhrase is the text that follows this credit when the credits are
 	// displayed (" & ", " feat. "), where the provider reports one.
 	JoinPhrase string
+	// CreditedName is the name the artist is credited as here when it differs
+	// from Name (MusicBrainz "artist as credited"); "" when it doesn't.
+	CreditedName string
 }
 
 // ReleaseRef is a provider-side release the recording appears on.

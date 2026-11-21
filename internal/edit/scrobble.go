@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"younithm/internal/names"
 )
 
 // NullableInt distinguishes "absent" from "null" from a value in JSON bodies.
@@ -194,7 +195,7 @@ func (p *planner) createRelease(rec int64, title string) ([]Change, error) {
 	artists := p.newRecArtists
 	if rec != p.newRec {
 		var err error
-		artists, err = queryRows(p.ctx, p.tx, `SELECT artist_id, position, join_phrase FROM recording_artist WHERE recording_id=? ORDER BY position`, rec)
+		artists, err = queryRows(p.ctx, p.tx, `SELECT artist_id, position, join_phrase, credited_name FROM recording_artist WHERE recording_id=? ORDER BY position`, rec)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +207,7 @@ func (p *planner) createRelease(rec int64, title string) ([]Change, error) {
 	p.newRel = rel
 	cs := []Change{{Table: "release", Key: Row{"id": rel}, After: Row{"id": rel, "title": title}}}
 	for _, a := range artists {
-		n := Row{"release_id": rel, "artist_id": a["artist_id"], "position": a["position"], "join_phrase": a["join_phrase"]}
+		n := Row{"release_id": rel, "artist_id": a["artist_id"], "position": a["position"], "join_phrase": a["join_phrase"], "credited_name": a["credited_name"]}
 		cs = append(cs, Change{Table: "release_artist", Key: pickKey(tables["release_artist"], n), After: n})
 	}
 	return cs, nil
@@ -473,8 +474,7 @@ type ScrobbleView struct {
 func View(ctx context.Context, q Querier, id int64) (*ScrobbleView, error) {
 	var v ScrobbleView
 	err := q.QueryRowContext(ctx, `SELECT s.id, s.played_at, s.orig_played_at, s.edited_at, s.raw_artist, s.raw_title, s.raw_album, s.raw_payload,
-		COALESCE((SELECT group_concat(name, ', ') FROM (SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-		   WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)), s.raw_artist),
+		COALESCE(`+names.LineSQL(names.Recording, "s.recording_id")+`, s.raw_artist),
 		COALESCE(rec.title, s.raw_title), COALESCE(rel.title, s.raw_album), s.recording_id, s.release_id
 		FROM scrobble s LEFT JOIN recording rec ON rec.id=s.recording_id LEFT JOIN release rel ON rel.id=s.release_id WHERE s.id=?`, id).
 		Scan(&v.ID, &v.PlayedAt, &v.OrigPlayedAt, &v.EditedAt, &v.Raw.Artist, &v.Raw.Title, &v.Raw.Album, &v.Raw.Payload,

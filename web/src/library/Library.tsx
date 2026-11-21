@@ -85,13 +85,14 @@ export function SearchField({ value, onChange, placeholder }: { value: string; o
   );
 }
 
-// Each credited artist links to its own page, joined as credited. Without
+// Each credited artist links to its own page, under the name it is credited
+// as, joined as credited. Without
 // credits (an unmatched scrobble) the plain text shows instead.
-export function ArtistLinks({ artists, fallback }: { artists?: { id: number; name: string; join_phrase?: string }[]; fallback?: string }) {
+export function ArtistLinks({ artists, fallback }: { artists?: { id: number; name: string; join_phrase?: string; credited_name?: string }[]; fallback?: string }) {
   if (!artists?.length) return <>{fallback || "–"}</>;
   return <>{artists.map((a, i) => (
     <span key={`${a.id}-${i}`}>
-      <Link to={`/artist/${a.id}`} onClick={(e) => e.stopPropagation()}>{a.name}</Link>
+      <Link to={`/artist/${a.id}`} onClick={(e) => e.stopPropagation()}>{a.credited_name || a.name}</Link>
       {i < artists.length - 1 && (a.join_phrase || ", ")}
     </span>
   ))}</>;

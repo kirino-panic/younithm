@@ -14,7 +14,7 @@ const PATHS: Record<string, Record<Kind, string>> = {
   apple: { artist: "https://music.apple.com/artist/", release: "https://music.apple.com/album/", recording: "https://music.apple.com/song/" },
 };
 
-type CreditRow = { id?: number; name: string; join: string };
+type CreditRow = { id?: number; name: string; join: string; credited: string };
 type AlbumRow = { id?: number; title: string; primary: boolean; removed?: boolean };
 
 const MAX_IMAGE = 8 << 20;
@@ -34,7 +34,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const [adding, setAdding] = useState<"artist" | "album" | null>(null);
   // The display name set by hand; empty means the naming order decides.
   const [title, setTitle] = useState(override || "");
-  const startCredits = (credits || []).map((c) => ({ id: c.id, name: c.name, join: c.join_phrase || "" }));
+  const startCredits = (credits || []).map((c) => ({ id: c.id, name: c.name, join: c.join_phrase || "", credited: c.credited_name || "" }));
   const [artists, setArtists] = useState<CreditRow[]>(startCredits);
   const [albums, setAlbums] = useState<AlbumRow[]>((releases || []).map((r) => ({ id: r.id, title: r.title, primary: r.primary })));
   const [linkEdits, setLinkEdits] = useState<Record<string, string | null>>({}); // provider -> new URL ("" while typing), or null to remove
@@ -104,7 +104,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       }
       if (kind !== "artist" && credits && creditsChanged) {
         if (!artists.length) throw new ApiError(400, "bad_value", "Add at least one artist.");
-        const body: CreditIn[] = artists.map((a) => (a.id ? { artist_id: a.id, join_phrase: a.join } : { name: a.name, join_phrase: a.join }));
+        const body: CreditIn[] = artists.map((a) => ({ ...(a.id ? { artist_id: a.id } : { name: a.name }), join_phrase: a.join, credited_name: a.credited.trim() || undefined }));
         await endpoints.setCredits(kind, id, body);
         done.push("artists");
       }
@@ -138,7 +138,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 
   // Alias keys are "artist<US>title" match keys; show the ones that differ from
   // the current name, readably.
-  const current = [(credits || []).map((c) => c.name + (c.join_phrase || "")).join(""), name].filter(Boolean).join("\x1f").toLowerCase();
+  const current = [(credits || []).map((c) => (c.credited_name || c.name) + (c.join_phrase || "")).join(""), name].filter(Boolean).join("\x1f").toLowerCase();
   const aka = raw.filter((r) => r.toLowerCase() !== current && r.toLowerCase() !== name.toLowerCase()).map((r) => r.split("\x1f").join(" – "));
 
   return (
@@ -190,6 +190,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             {artists.map((a, i) => (
               <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
                 <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
+                <input className="input" style={{ flex: "1 1 0", minWidth: 0, width: 0 }} aria-label={`${a.name} credited as`} placeholder="Credited as"
+                  value={a.credited} onChange={(e) => setArtists((x) => x.map((r, j) => (j === i ? { ...r, credited: e.target.value } : r)))} />
                 {i < artists.length - 1 && (
                   <input className="input" style={{ width: 64 }} aria-label={`Between ${a.name} and the next artist`} placeholder=", "
                     value={a.join} onChange={(e) => setArtists((x) => x.map((r, j) => (j === i ? { ...r, join: e.target.value } : r)))} />
@@ -207,7 +209,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                 onPick={(v) => {
                   setAdding(null);
                   if (v.id && artists.some((a) => a.id === v.id)) return;
-                  setArtists((x) => [...x.map((r, j) => (j === x.length - 1 && !r.join ? { ...r, join: ", " } : r)), { id: v.id, name: v.name, join: "" }]);
+                  setArtists((x) => [...x.map((r, j) => (j === x.length - 1 && !r.join ? { ...r, join: ", " } : r)), { id: v.id, name: v.name, join: "", credited: "" }]);
                 }} />
             ) : (
               <button className="btn edit-add" onClick={() => setAdding("artist")}><Plus size={15} /> Add artist</button>

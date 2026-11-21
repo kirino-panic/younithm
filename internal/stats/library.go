@@ -54,9 +54,10 @@ type chart struct {
 }
 
 type credit struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	JoinPhrase string `json:"join_phrase,omitempty"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	JoinPhrase   string `json:"join_phrase,omitempty"`
+	CreditedName string `json:"credited_name,omitempty"` // shown instead of Name in credit lines
 }
 
 type span struct {
@@ -192,25 +193,23 @@ func (h *Handler) credits(ctx context.Context, q string, id int64) ([]credit, er
 	out := []credit{}
 	for rows.Next() {
 		var c credit
-		var jp sql.NullString
-		if err := rows.Scan(&c.ID, &c.Name, &jp); err != nil {
+		var jp, cn sql.NullString
+		if err := rows.Scan(&c.ID, &c.Name, &jp, &cn); err != nil {
 			return nil, err
 		}
-		c.JoinPhrase = jp.String
+		c.JoinPhrase, c.CreditedName = jp.String, cn.String
 		out = append(out, c)
 	}
 	return out, rows.Err()
 }
 
-const (
-	recordingCredits = `SELECT a.id, a.name, ra.join_phrase FROM recording_artist ra JOIN artist a ON a.id = ra.artist_id
+var (
+	recordingCredits = `SELECT a.id, a.name, ra.join_phrase, ra.credited_name FROM recording_artist ra JOIN artist a ON a.id = ra.artist_id
 WHERE ra.recording_id = ? ORDER BY ra.position, a.id`
-	releaseCredits = `SELECT a.id, a.name, ra.join_phrase FROM release_artist ra JOIN artist a ON a.id = ra.artist_id
+	releaseCredits = `SELECT a.id, a.name, ra.join_phrase, ra.credited_name FROM release_artist ra JOIN artist a ON a.id = ra.artist_id
 WHERE ra.release_id = ? ORDER BY ra.position, a.id`
 	// creditLine is the joined artist credit of recording rec.id.
-	creditLine = `COALESCE((SELECT group_concat(name, ', ') FROM (
-  SELECT a.name FROM recording_artist ra JOIN artist a ON a.id = ra.artist_id
-  WHERE ra.recording_id = rec.id ORDER BY ra.position, a.id)), '')`
+	creditLine = `COALESCE(` + names.LineSQL(names.Recording, "rec.id") + `, '')`
 )
 
 // ---- Artist ----

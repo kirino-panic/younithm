@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"younithm/internal/names"
 
 	"github.com/go-chi/chi/v5"
 
@@ -130,9 +131,7 @@ func (h *Review) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := h.read.QueryContext(ctx, `
 SELECT rec.id, rec.title, rec.duration_ms,
-  COALESCE((SELECT group_concat(name, ', ') FROM (
-     SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.recording_id=rec.id ORDER BY ra.position, a.id)), ''),
+  COALESCE(`+names.LineSQL(names.Recording, "rec.id")+`, ''),
   (SELECT rel.title FROM recording_release rr JOIN release rel ON rel.id=rr.release_id
      WHERE rr.recording_id=rec.id ORDER BY rr.is_primary DESC, rel.id LIMIT 1)
 FROM recording rec

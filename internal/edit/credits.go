@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"younithm/internal/names"
 )
 
 // CreditIn is one artist of a credit a person sets: an existing artist by id,
@@ -13,6 +14,9 @@ type CreditIn struct {
 	ArtistID   int64  `json:"artist_id,omitempty"`
 	Name       string `json:"name,omitempty"`
 	JoinPhrase string `json:"join_phrase,omitempty"`
+	// CreditedName is the name the artist is credited as here, when it differs
+	// from the artist's own ("The Square" for T-SQUARE); "" means the artist's.
+	CreditedName string `json:"credited_name,omitempty"`
 }
 
 // SetCredits replaces the artists of a recording or release, in order.
@@ -49,7 +53,11 @@ func (e *Editor) SetCredits(ctx context.Context, actor, kind string, id int64, i
 			if i < len(in)-1 && in[i].JoinPhrase != "" {
 				jp = in[i].JoinPhrase
 			}
-			n := Row{col: id, "artist_id": aid, "position": int64(i), "join_phrase": jp}
+			var cn any
+			if v := strings.TrimSpace(in[i].CreditedName); v != "" {
+				cn = v
+			}
+			n := Row{col: id, "artist_id": aid, "position": int64(i), "join_phrase": jp, "credited_name": cn}
 			if kind == KindRecording {
 				n["role"] = "primary"
 			}
@@ -67,7 +75,7 @@ func (e *Editor) SetCredits(ctx context.Context, actor, kind string, id int64, i
 				continue
 			}
 			before, after := Row{}, Row{}
-			for _, c := range []string{"position", "join_phrase"} {
+			for _, c := range []string{"position", "join_phrase", "credited_name"} {
 				if canon(r[c]) != canon(n[c]) {
 					before[c], after[c] = r[c], n[c]
 				}
@@ -108,12 +116,12 @@ func (e *Editor) AddToNewRelease(ctx context.Context, actor string, rec int64, t
 		}
 		cs := []Change{{Table: "release", Key: Row{"id": rel}, After: Row{"id": rel, "title": title}}}
 		// The recording's artists become the new album's artists.
-		ra, err := queryRows(ctx, tx, `SELECT artist_id, position, join_phrase FROM recording_artist WHERE recording_id=? ORDER BY position`, rec)
+		ra, err := queryRows(ctx, tx, `SELECT artist_id, position, join_phrase, credited_name FROM recording_artist WHERE recording_id=? ORDER BY position`, rec)
 		if err != nil {
 			return nil, err
 		}
 		for _, a := range ra {
-			n := Row{"release_id": rel, "artist_id": a["artist_id"], "position": a["position"], "join_phrase": a["join_phrase"]}
+			n := Row{"release_id": rel, "artist_id": a["artist_id"], "position": a["position"], "join_phrase": a["join_phrase"], "credited_name": a["credited_name"]}
 			cs = append(cs, Change{Table: "release_artist", Key: pickKey(tables["release_artist"], n), After: n})
 		}
 		lc, err := newPlanner(ctx, tx, e.now()).link(rec, rel, 1, nil)
@@ -153,15 +161,13 @@ ORDER BY lower(a.name) = lower(?3) DESC, lower(a.name) LIKE ?2 DESC,
   (SELECT COUNT(*) FROM recording_artist ra WHERE ra.artist_id=a.id) DESC, a.name LIMIT ?4`
 	case KindRelease:
 		query = `SELECT r.id, r.title,
-  trim(COALESCE((SELECT group_concat(name, ', ') FROM (SELECT a.name FROM release_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.release_id=r.id ORDER BY ra.position)), '') || COALESCE(' · ' || substr(r.release_date,1,4), ''), ' ·')
+  trim(COALESCE(` + names.LineSQL(names.Release, "r.id") + `, '') || COALESCE(' · ' || substr(r.release_date,1,4), ''), ' ·')
 FROM release r
 WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='release' AND al.entity_id=r.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
 ORDER BY lower(r.title) = lower(?3) DESC, lower(r.title) LIKE ?2 DESC, r.title LIMIT ?4`
 	case KindRecording:
 		query = `SELECT r.id, r.title,
-  trim(COALESCE((SELECT group_concat(name, ', ') FROM (SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.recording_id=r.id ORDER BY ra.position)), '') || COALESCE(' · ' || (SELECT rel.title FROM recording_release rr JOIN release rel ON rel.id=rr.release_id
+  trim(COALESCE(` + names.LineSQL(names.Recording, "r.id") + `, '') || COALESCE(' · ' || (SELECT rel.title FROM recording_release rr JOIN release rel ON rel.id=rr.release_id
      WHERE rr.recording_id=r.id ORDER BY rr.is_primary DESC, rel.id LIMIT 1), ''), ' ·')
 FROM recording r
 WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='recording' AND al.entity_id=r.id AND lower(replace(al.raw_string, char(31), ' ')) LIKE ?1 ESCAPE '\')

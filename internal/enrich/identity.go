@@ -107,7 +107,41 @@ func applyTrack(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Track
 			return err
 		}
 	}
+	if err := fillCreditedNames(ctx, tx, identity.KindRecording, recID, t.Provider, t.Artists); err != nil {
+		return err
+	}
 	return applyReleases(ctx, tx, recID, t, exact, albums)
+}
+
+// fillCreditedNames stores, on our credits of a recording or release, the
+// names a MusicBrainz credit list says the artists are credited as ("The
+// Square" for T-SQUARE). A credit is paired only through the MusicBrainz
+// artist id our artist holds, never by name or position. It fills gaps only:
+// a credited name already set is kept, and an entity edited by hand is left
+// alone.
+func fillCreditedNames(ctx context.Context, tx *sql.Tx, kind string, id int64, provider string, artists []providers.Artist) error {
+	if provider != providers.MusicBrainz {
+		return nil
+	}
+	table, col := "recording_artist", "recording_id"
+	if kind == identity.KindRelease {
+		table, col = "release_artist", "release_id"
+	}
+	var edited int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE entity_type=? AND entity_id=? AND scope<>'link'`, kind, id).Scan(&edited); err != nil || edited > 0 {
+		return err
+	}
+	for _, a := range artists {
+		if a.CreditedName == "" || a.ProviderID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET credited_name=? WHERE `+col+`=? AND credited_name IS NULL
+			AND artist_id IN (SELECT entity_id FROM external_link WHERE entity_type='artist' AND provider=? AND provider_id=? AND status<>'candidate')`,
+			a.CreditedName, id, identity.MusicBrainz, a.ProviderID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type ourArtist struct {
@@ -620,6 +654,9 @@ func applyReleases(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Tr
 				cs = append(cs, c)
 			}
 			if err := identity.FillReleaseArtists(ctx, tx, target, cs); err != nil {
+				return err
+			}
+			if err := fillCreditedNames(ctx, tx, identity.KindRelease, target, t.Provider, rr.Artists); err != nil {
 				return err
 			}
 		}

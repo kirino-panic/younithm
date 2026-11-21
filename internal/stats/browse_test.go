@@ -30,7 +30,7 @@ func TestLibraryLists(t *testing.T) {
 	}
 	var tr out
 	get(t, h, "/library/tracks?sort=last", &tr)
-	if tr.Total != 2 || tr.Items[0].Name != "Feature" || *tr.Items[0].Artist != "Guest, Matched Artist" ||
+	if tr.Total != 2 || tr.Items[0].Name != "Feature" || *tr.Items[0].Artist != "Guest feat. Matched Artist" ||
 		tr.Items[1].Album == nil || *tr.Items[1].Album != "Album One" {
 		t.Fatalf("tracks %+v", tr)
 	}

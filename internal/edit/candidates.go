@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"younithm/internal/names"
 
 	"younithm/internal/artwork"
 )
@@ -31,14 +32,12 @@ var candidateSQL = map[string]string{
   ` + artwork.ArtistImage("x") + `, x.id
 FROM artist x`,
 	KindRelease: `SELECT x.id, COALESCE(NULLIF(x.display_name, ''), x.title),
-  trim(COALESCE((SELECT group_concat(name, ', ') FROM (SELECT COALESCE(NULLIF(a.display_name, ''), a.name) AS name FROM release_artist ra
-     JOIN artist a ON a.id = ra.artist_id WHERE ra.release_id = x.id ORDER BY ra.position)), '') || COALESCE(' · ' || substr(x.release_date, 1, 4), ''), ' ·'),
+  trim(COALESCE(` + names.LineSQL(names.Release, "x.id") + `, '') || COALESCE(' · ' || substr(x.release_date, 1, 4), ''), ' ·'),
   (SELECT COUNT(*) FROM scrobble s WHERE s.release_id = x.id),
   ` + artwork.ReleaseImage("x") + `, x.id
 FROM release x`,
 	KindRecording: `SELECT x.id, COALESCE(NULLIF(x.display_name, ''), x.title),
-  trim(COALESCE((SELECT group_concat(name, ', ') FROM (SELECT COALESCE(NULLIF(a.display_name, ''), a.name) AS name FROM recording_artist ra
-     JOIN artist a ON a.id = ra.artist_id WHERE ra.recording_id = x.id ORDER BY ra.position)), '') || COALESCE(' · ' || (SELECT rel.title FROM recording_release rr
+  trim(COALESCE(` + names.LineSQL(names.Recording, "x.id") + `, '') || COALESCE(' · ' || (SELECT rel.title FROM recording_release rr
      JOIN release rel ON rel.id = rr.release_id WHERE rr.recording_id = x.id ORDER BY rr.is_primary DESC, rel.id LIMIT 1), ''), ' ·'),
   (SELECT COUNT(*) FROM scrobble s WHERE s.recording_id = x.id),
   (SELECT ` + artwork.ReleaseImage("rel") + ` FROM recording_release rr JOIN release rel ON rel.id = rr.release_id

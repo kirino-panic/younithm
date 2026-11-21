@@ -426,17 +426,23 @@ func (s *Source) store(key, v string) {
 
 // Credit is one artist of a credit line.
 type Credit struct {
-	ID         int64
-	Name       string
-	JoinPhrase string
+	ID           int64
+	Name         string
+	JoinPhrase   string
+	CreditedName string // the name the artist is credited as here, "" = its own
 }
 
-// Line joins credits with their join phrases (", " when none), each name in
-// the preferred wording.
+// Line joins credits with their join phrases (", " when none). Each artist
+// goes by the name it is credited as here (that is this release's own
+// wording), else its name in the preferred wording.
 func (s *Source) Line(ctx context.Context, cs []Credit) string {
 	var b strings.Builder
 	for i, c := range cs {
-		b.WriteString(s.Display(ctx, Artist, c.ID, c.Name))
+		name := c.CreditedName
+		if name == "" {
+			name = s.Display(ctx, Artist, c.ID, c.Name)
+		}
+		b.WriteString(name)
 		if i < len(cs)-1 {
 			if c.JoinPhrase != "" {
 				b.WriteString(c.JoinPhrase)
@@ -450,10 +456,10 @@ func (s *Source) Line(ctx context.Context, cs []Credit) string {
 
 // Credits loads a recording's or release's credits in order.
 func (s *Source) Credits(ctx context.Context, kind string, id int64) ([]Credit, error) {
-	q := `SELECT a.id, a.name, COALESCE(ra.join_phrase,'') FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
+	q := `SELECT a.id, a.name, COALESCE(ra.join_phrase,''), COALESCE(ra.credited_name,'') FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
 WHERE ra.recording_id=? ORDER BY ra.position, a.id`
 	if kind == Release {
-		q = `SELECT a.id, a.name, COALESCE(ra.join_phrase,'') FROM release_artist ra JOIN artist a ON a.id=ra.artist_id
+		q = `SELECT a.id, a.name, COALESCE(ra.join_phrase,''), COALESCE(ra.credited_name,'') FROM release_artist ra JOIN artist a ON a.id=ra.artist_id
 WHERE ra.release_id=? ORDER BY ra.position, a.id`
 	}
 	rows, err := s.read.QueryContext(ctx, q, id)
@@ -464,7 +470,7 @@ WHERE ra.release_id=? ORDER BY ra.position, a.id`
 	var out []Credit
 	for rows.Next() {
 		var c Credit
-		if err := rows.Scan(&c.ID, &c.Name, &c.JoinPhrase); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.JoinPhrase, &c.CreditedName); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

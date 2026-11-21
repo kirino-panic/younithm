@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"younithm/internal/edit"
+	"younithm/internal/names"
 )
 
 func TestMergeCandidates(t *testing.T) {
@@ -154,5 +155,52 @@ func TestMergeSuggestionsSameAlbumAndReleaseGroup(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != stereo || got[0].Reason != "Same release group" {
 		t.Fatalf("release group: %+v", got)
+	}
+}
+
+func TestCreditLineSQLUsesCreditedNamesAndJoinPhrases(t *testing.T) {
+	e := newEnv(t)
+	c := e.artist("Casiopea")
+	s := e.artist("T-SQUARE")
+	rel := e.release("Casiopea vs. The Square", "2000")
+	e.exec(`INSERT INTO release_artist(release_id, artist_id, position, join_phrase, credited_name) VALUES (?, ?, 0, ' vs. ', NULL), (?, ?, 1, ' ignored', 'The Square')`, rel, c, rel, s)
+	line := func() string {
+		return e.str(`SELECT `+names.LineSQL(names.Release, "?"), rel)
+	}
+	if got := line(); got != "Casiopea vs. The Square" {
+		t.Fatalf("line = %q", got)
+	}
+	// A rename by hand applies where no credited name is set; the credited name wins.
+	e.exec(`UPDATE artist SET display_name='CASIOPEA' WHERE id=?`, c)
+	e.exec(`UPDATE artist SET display_name='T-Square' WHERE id=?`, s)
+	if got := line(); got != "CASIOPEA vs. The Square" {
+		t.Fatalf("with overrides = %q", got)
+	}
+	// No join phrase means ", ".
+	e.exec(`UPDATE release_artist SET join_phrase=NULL WHERE release_id=?`, rel)
+	if got := line(); got != "CASIOPEA, The Square" {
+		t.Fatalf("default join = %q", got)
+	}
+}
+
+func TestSetCreditsCreditedNameAndUndo(t *testing.T) {
+	e := newEnv(t)
+	c := e.artist("Casiopea")
+	s := e.artist("T-SQUARE")
+	rec := e.recording("Asayake", c, s)
+	res, err := e.ed.SetCredits(ctx, "a", "recording", rec, []edit.CreditIn{
+		{ArtistID: c, JoinPhrase: " vs. "}, {ArtistID: s, CreditedName: " The Square "},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.str(`SELECT COALESCE(credited_name, '') FROM recording_artist WHERE recording_id=? AND artist_id=?`, rec, s); got != "The Square" {
+		t.Fatalf("credited name = %q", got)
+	}
+	if _, err := e.ed.Undo(ctx, "a", res.EditID); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.str(`SELECT COALESCE(credited_name, '') FROM recording_artist WHERE recording_id=? AND artist_id=?`, rec, s); got != "" {
+		t.Fatalf("after undo = %q", got)
 	}
 }

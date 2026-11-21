@@ -261,3 +261,21 @@ func TestLookupTrackIDRejectsNonIDsWithoutARequest(t *testing.T) {
 		}
 	}
 }
+
+func TestCreditedNameKeptWhenItDiffers(t *testing.T) {
+	got := credits([]mbArtistCredit{
+		{Name: "Casiopea", JoinPhrase: " vs. ", Artist: struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		}{ID: "c", Name: "Casiopea"}},
+		{Name: "The Square", Artist: struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		}{ID: "s", Name: "T-SQUARE"}},
+	})
+	if len(got) != 2 || got[0].CreditedName != "" || got[1].Name != "T-SQUARE" || got[1].CreditedName != "The Square" || got[0].JoinPhrase != " vs. " {
+		t.Fatalf("%+v", got)
+	}
+}

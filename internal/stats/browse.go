@@ -49,9 +49,7 @@ SELECT a.id AS id, a.name AS name, NULL AS artist, NULL AS album_id, NULL AS alb
 JOIN artist a ON a.id = p.id`, artwork.KindArtist, true
 	case "albums":
 		return `
-SELECT rel.id AS id, rel.title AS name, (SELECT group_concat(name, ', ') FROM (
-    SELECT a.name FROM release_artist ra JOIN artist a ON a.id = ra.artist_id
-    WHERE ra.release_id = rel.id ORDER BY ra.position, a.id)) AS artist,
+SELECT rel.id AS id, rel.title AS name, ` + names.LineSQL(names.Release, "rel.id") + ` AS artist,
   NULL AS album_id, NULL AS album, p.n AS n, p.last AS last, ` + artwork.ReleaseImage("rel") + ` AS art FROM (
   SELECT release_id AS id, COUNT(*) AS n, MAX(played_at) AS last
   FROM scrobble WHERE user_id = 1 AND release_id IS NOT NULL GROUP BY release_id) p

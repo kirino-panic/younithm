@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"younithm/internal/names"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -180,13 +181,11 @@ type scrobbleItem struct {
 	Matched     bool            `json:"matched"`
 }
 
-const displaySelect = `
+var displaySelect = `
 SELECT s.id, s.played_at,
-  COALESCE((SELECT group_concat(name, ', ') FROM (
-     SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)), s.raw_artist),
-  (SELECT json_group_array(json_object('id', id, 'name', name)) FROM (
-     SELECT a.id, a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
+  COALESCE(` + names.LineSQL(names.Recording, "s.recording_id") + `, s.raw_artist),
+  (SELECT json_group_array(json_object('id', id, 'name', name, 'join_phrase', jp, 'credited_name', cn)) FROM (
+     SELECT a.id, a.name, COALESCE(ra.join_phrase, '') AS jp, COALESCE(ra.credited_name, '') AS cn FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
      WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)),
   COALESCE(rec.title, s.raw_title),
   COALESCE(rel.title, s.raw_album),

@@ -140,9 +140,7 @@ func (h *Handler) recent(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.read.QueryContext(r.Context(), `
 SELECT s.id, s.played_at,
-  COALESCE((SELECT group_concat(name, ', ') FROM (
-     SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)), s.raw_artist),
+  COALESCE(`+names.LineSQL(names.Recording, "s.recording_id")+`, s.raw_artist),
   COALESCE(rec.title, s.raw_title), COALESCE(rel.title, s.raw_album), s.recording_id, s.release_id
 FROM scrobble s
 LEFT JOIN recording rec ON rec.id = s.recording_id
@@ -215,9 +213,7 @@ SELECT name, aid, NULL, COUNT(*) AS plays FROM (
 	case "tracks":
 		return `
 SELECT COALESCE(rec.title, s.raw_title), s.recording_id,
-  COALESCE((SELECT group_concat(name, ', ') FROM (
-     SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)), s.raw_artist),
+  COALESCE(` + names.LineSQL(names.Recording, "s.recording_id") + `, s.raw_artist),
   COUNT(*) AS plays
 FROM scrobble s LEFT JOIN recording rec ON rec.id = s.recording_id
 WHERE s.user_id = 1 AND s.played_at >= ?1
@@ -226,9 +222,7 @@ ORDER BY plays DESC, 1 LIMIT ?2`, true
 	case "albums":
 		return `
 SELECT COALESCE(rel.title, s.raw_album), s.release_id,
-  COALESCE((SELECT group_concat(name, ', ') FROM (
-     SELECT a.name FROM release_artist ra JOIN artist a ON a.id=ra.artist_id
-     WHERE ra.release_id=s.release_id ORDER BY ra.position, a.id)), s.raw_artist),
+  COALESCE(` + names.LineSQL(names.Release, "s.release_id") + `, s.raw_artist),
   COUNT(*) AS plays
 FROM scrobble s LEFT JOIN release rel ON rel.id = s.release_id
 WHERE s.user_id = 1 AND s.played_at >= ?1 AND COALESCE(rel.title, s.raw_album) IS NOT NULL

@@ -101,7 +101,7 @@ export interface Listen { id: number; played_at: string; artist: string; title: 
 
 export interface ChartPoint { label: string; plays: number }
 export interface Chart { month: ChartPoint[]; year: ChartPoint[]; all: ChartPoint[] }
-export interface Credit { id: number; name: string; join_phrase?: string }
+export interface Credit { id: number; name: string; join_phrase?: string; credited_name?: string }
 export interface ArtistPage {
   id: number; name: string; display_name?: string | null; image?: string; image_custom?: boolean; aliases: string[]; plays: number; rank: number; first: string | null; last: string | null;
   links: Record<string, string>; chart: Chart;
@@ -117,7 +117,7 @@ export interface ReleasePage {
 export interface NameVariant { source: string; title: string; artists?: string }
 export interface SearchHit { id: number; name: string; sub?: string }
 export interface MergeCandidate { id: number; name: string; sub?: string; plays: number; image?: string; reason?: string }
-export interface CreditIn { artist_id?: number; name?: string; join_phrase?: string }
+export interface CreditIn { artist_id?: number; name?: string; join_phrase?: string; credited_name?: string }
 export interface RecordingPage {
   names: NameVariant[];
   id: number; title: string; display_name?: string | null; image?: string; duration_ms: number | null; artists: Credit[]; aliases: string[]; links: Record<string, string>;

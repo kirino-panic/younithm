@@ -122,7 +122,7 @@ func putOnCatalogueAlbum(ctx context.Context, tx *sql.Tx, recID int64, srcs []al
 				return false, err
 			}
 			if rel != 0 {
-				return true, nil
+				return true, fillCreditedNames(ctx, tx, identity.KindRelease, rel, s.t.Provider, ref.Artists)
 			}
 		}
 	}
@@ -214,8 +214,8 @@ func flagSameAlbumVariants(ctx context.Context, tx *sql.Tx, target int64, ours [
 // catalogue album is attached to would otherwise stay without. A release that
 // already has album artists is never changed.
 func copyAlbumArtists(ctx context.Context, tx *sql.Tx, from, to int64) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO release_artist (release_id, artist_id, position, join_phrase)
-		SELECT ?2, artist_id, position, join_phrase FROM release_artist WHERE release_id=?1
+	_, err := tx.ExecContext(ctx, `INSERT INTO release_artist (release_id, artist_id, position, join_phrase, credited_name)
+		SELECT ?2, artist_id, position, join_phrase, credited_name FROM release_artist WHERE release_id=?1
 		AND NOT EXISTS (SELECT 1 FROM release_artist WHERE release_id=?2)`, from, to)
 	return err
 }

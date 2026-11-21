@@ -160,7 +160,7 @@ type mbRecording struct {
 }
 
 // credits maps a MusicBrainz artist credit to provider artists, keeping the
-// credit order and join phrases.
+// credit order, join phrases and the names artists are credited as.
 func credits(acs []mbArtistCredit) []providers.Artist {
 	var out []providers.Artist
 	for _, ac := range acs {
@@ -168,8 +168,12 @@ func credits(acs []mbArtistCredit) []providers.Artist {
 		if name == "" {
 			name = ac.Name
 		}
+		credited := ""
+		if ac.Name != "" && ac.Name != name {
+			credited = ac.Name
+		}
 		out = append(out, providers.Artist{
-			ProviderID: ac.Artist.ID, Name: name, SortName: ac.Artist.SortName, JoinPhrase: ac.JoinPhrase,
+			ProviderID: ac.Artist.ID, Name: name, SortName: ac.Artist.SortName, JoinPhrase: ac.JoinPhrase, CreditedName: credited,
 		})
 	}
 	return out
