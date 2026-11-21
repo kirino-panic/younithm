@@ -75,9 +75,32 @@ func scanCandidates(rows *sql.Rows, kind string) ([]Candidate, error) {
 	return out, rows.Err()
 }
 
+// looseChars are dropped by loose matching, so "Monday, Monday" finds
+// "Monday Monday" and "dont" finds "Don't".
+const looseChars = `,.'’‘"“”!?:;…`
+
+// looseSQL wraps a lowercased SQL text expression so it drops looseChars.
+func looseSQL(expr string) string {
+	for _, r := range looseChars {
+		expr = "replace(" + expr + ", '" + strings.ReplaceAll(string(r), "'", "''") + "', '')"
+	}
+	return expr
+}
+
+// loose is looseSQL in Go, for the query side.
+func loose(s string) string {
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune(looseChars, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // MergeSearch finds entities of a kind, other than id, whose stored name,
-// display name, catalogue name or a spelling it was scrobbled as contains q.
-// Exact and prefix matches come first, then the most played.
+// display name, catalogue name or a spelling it was scrobbled as contains q,
+// ignoring the punctuation in looseChars. Exact and prefix matches come first,
+// then the most played.
 func MergeSearch(ctx context.Context, db Querier, kind string, id int64, q string, limit int) ([]Candidate, error) {
 	base, ok := candidateSQL[kind]
 	if !ok {
@@ -88,16 +111,24 @@ func MergeSearch(ctx context.Context, db Querier, kind string, id int64, q strin
 		return []Candidate{}, nil
 	}
 	lq := strings.ToLower(q)
-	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(lq) + "%"
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	like := "%" + esc.Replace(lq) + "%"
+	looseLike := "%" + esc.Replace(strings.TrimSpace(loose(lq))) + "%"
+	if looseLike == "%%" { // the query was only punctuation
+		looseLike = like
+	}
 	col := "x." + nameCol[kind]
+	match := func(expr string) string {
+		return `(` + expr + ` LIKE ?1 ESCAPE '\' OR ` + looseSQL(expr) + ` LIKE ?6 ESCAPE '\')`
+	}
 	query := strings.Replace(base, "\nFROM ", ", '' AS reason\nFROM ", 1) + `
-WHERE x.id <> ?4 AND (lower(` + col + `) LIKE ?1 ESCAPE '\' OR lower(COALESCE(x.display_name, '')) LIKE ?1 ESCAPE '\'
-  OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND lower(n.name) LIKE ?1 ESCAPE '\')
-  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + kind + `' AND al.entity_id = x.id AND lower(replace(al.raw_string, char(31), ' ')) LIKE ?1 ESCAPE '\'))
+WHERE x.id <> ?4 AND (` + match("lower("+col+")") + ` OR ` + match("lower(COALESCE(x.display_name, ''))") + `
+  OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND ` + match("lower(n.name)") + `)
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + kind + `' AND al.entity_id = x.id AND ` + match("lower(replace(al.raw_string, char(31), ' '))") + `))
 ORDER BY lower(` + col + `) = ?2 DESC, lower(COALESCE(x.display_name, '')) = ?2 DESC, lower(` + col + `) LIKE ?3 ESCAPE '\' DESC, 4 DESC
 LIMIT ?5`
-	prefix := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(lq) + "%"
-	rows, err := db.QueryContext(ctx, query, like, lq, prefix, id, limit)
+	prefix := esc.Replace(lq) + "%"
+	rows, err := db.QueryContext(ctx, query, like, lq, prefix, id, limit, looseLike)
 	if err != nil {
 		return nil, err
 	}

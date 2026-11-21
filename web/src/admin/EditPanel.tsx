@@ -55,20 +55,21 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const searchArtists = useCallback((q: string) => endpoints.search("artist", q).then((r) => r.items), []);
   const searchAlbums = useCallback((q: string) => endpoints.search("release", q).then((r) => r.items), []);
 
-  // Folds this entry into the picked one, then shows the one that's kept.
+  // Folds this entry into the picked one, then shows the one that's kept. The
+  // merged-away page is replaced in history, so Back skips it (it's gone).
   const merge = async () => {
     if (!mergeInto) return;
     setBusy(true); setErr("");
     try {
       const res = await withStepUp(() => endpoints.merge(kind, id, mergeInto.id), ask);
       onClose();
-      navigate(ROUTES[kind] + mergeInto.id);
+      navigate(ROUTES[kind] + mergeInto.id, { replace: true });
       toast({
         text: `Merged into ${mergeInto.name}`,
         action: {
           label: "Undo",
           run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
-            .then(() => navigate(ROUTES[kind] + id))
+            .then(() => navigate(ROUTES[kind] + id, { replace: true }))
             .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
         },
       });

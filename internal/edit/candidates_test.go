@@ -101,3 +101,23 @@ func TestMergeSuggestionsSimilarName(t *testing.T) {
 		t.Fatalf("from bonus: %+v", got)
 	}
 }
+
+func TestMergeSearchIgnoresPunctuation(t *testing.T) {
+	e := newEnv(t)
+	a := e.artist("The Mamas & the Papas")
+	mm := e.recording("Monday Monday", a)
+	dont := e.recording("Don't Stop", a)
+	for q, want := range map[string]int64{"Monday, Monday": mm, "monday monday": mm, "dont stop": dont, "Don’t": dont} {
+		hits, err := edit.MergeSearch(ctx, e.db, "recording", 0, q, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hits) != 1 || hits[0].ID != want {
+			t.Fatalf("%q: %+v", q, hits)
+		}
+	}
+	// Punctuation alone still searches literally rather than matching everything.
+	if hits, _ := edit.MergeSearch(ctx, e.db, "recording", 0, "'", 10); len(hits) != 1 || hits[0].ID != dont {
+		t.Fatalf("quote only: %+v", hits)
+	}
+}
