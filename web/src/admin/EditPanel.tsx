@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, Star, X } from "lucide-react";
-import { endpoints, ApiError, withStepUp, type Credit, type CreditIn, type MergeCandidate } from "../api";
+import { endpoints, ApiError, withBase, withStepUp, type Credit, type CreditIn, type MergeCandidate } from "../api";
 import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, usePasswordPrompt, useToast } from "../ui";
 
 type Kind = "recording" | "release" | "artist";
@@ -28,7 +28,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const toast = useToast();
   const ask = usePasswordPrompt();
   const navigate = useNavigate();
-  const [mergeInto, setMergeInto] = useState<{ id: number; name: string } | null>(null);
+  const [mergeInto, setMergeInto] = useState<MergeCandidate | null>(null);
   const [merging, setMerging] = useState(false);
   // Off: merge just what is here now; later listens under this name stay apart.
   const [remember, setRemember] = useState(true);
@@ -165,6 +165,13 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   // Alias keys are "artist<US>title" match keys; show the ones that differ from
   // the current name, readably.
   const current = [(credits || []).map((c) => (c.credited_name || c.name) + (c.join_phrase || "")).join(""), name].filter(Boolean).join("\x1f").toLowerCase();
+  // This entry as the merge summary shows it: what tells it apart from a look-alike.
+  const creditLine = (credits || []).map((c, i, all) => (c.credited_name || c.name) + (i < all.length - 1 ? c.join_phrase || ", " : "")).join("");
+  const primaryAlbum = (releases || []).find((r) => r.primary) || (releases || [])[0];
+  const self: PickEntry = {
+    id, name: override || name, image,
+    sub: [creditLine, kind === "recording" ? primaryAlbum?.title : ""].filter(Boolean).join(" · ") || undefined,
+  };
   const aka = raw.filter((r) => r.toLowerCase() !== current && r.toLowerCase() !== name.toLowerCase()).map((r) => r.split("\x1f").join(" – "));
 
   return (
@@ -346,7 +353,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       {merging && (
         <PickDialog kind={kind} title={`Merge ${LABELS[kind]}`} busy={busy} err={err}
           load={(q) => endpoints.mergeCandidates(kind, id, q)} action="Merge" danger
-          summary={(c) => <>Merge <strong style={{ color: "var(--label)" }}>{override || name}</strong> into <strong style={{ color: "var(--label)" }}>{c.name}</strong></>}
+          summary={(c) => <>Merge <PickChip kind={kind} entry={self} /> into <PickChip kind={kind} entry={c} /></>}
           onCancel={() => { setMerging(false); setMergeInto(null); setErr(""); setRemember(true); }}
           selected={mergeInto} onSelect={setMergeInto} onConfirm={merge}
           options={
@@ -370,7 +377,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 // re-link a single scrobble.
 export function PickDialog({ kind, title, intro, load, initialQuery = "", summary, action, danger, busy, err, selected, onSelect, onCancel, onConfirm, options }: {
   kind: Kind; title: string; intro?: string; load: (q: string) => Promise<{ items: MergeCandidate[] }>; initialQuery?: string;
-  summary: (picked: { id: number; name: string }) => ReactNode; action: string; danger?: boolean; busy: boolean; err: string; selected: { id: number; name: string } | null;
+  summary: (picked: MergeCandidate) => ReactNode; action: string; danger?: boolean; busy: boolean; err: string; selected: MergeCandidate | null;
   onSelect: (c: MergeCandidate | null) => void; onCancel: () => void; onConfirm: () => void;
   options?: ReactNode; // shown above the buttons
 }) {
@@ -427,7 +434,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
       {options}
       {err && <p className="error-text">{err}</p>}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <span className="grow truncate muted" style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+        <span className="pick-summary muted">
           {selected && summary(selected)}
         </span>
         <button className="btn" onClick={onCancel}>Cancel</button>
@@ -547,5 +554,25 @@ function DeleteEntityDialog({ name, onCancel, remove }: { name: string; onCancel
         <button className="btn btn-primary btn-danger" disabled={busy} onClick={go}>Delete</button>
       </div>
     </Modal>
+  );
+}
+
+export type PickEntry = { id: number; name: string; sub?: string; image?: string; plays?: number };
+
+// A name in a dialog's summary line: it opens the entry in a new tab (so the
+// dialog stays as it is), and hovering it shows what tells it apart.
+export function PickChip({ kind, entry }: { kind: Kind; entry: PickEntry }) {
+  return (
+    <span className="pick-chip">
+      <a className="pick-chip-name" href={withBase(ROUTES[kind] + entry.id)} target="_blank" rel="noopener">{entry.name}</a>
+      <span className="pick-pop" role="tooltip">
+        <Cover name={entry.name} src={entry.image} size={40} round={kind === "artist"} />
+        <span style={{ display: "grid", minWidth: 0 }}>
+          <span className="pick-pop-title">{entry.name}</span>
+          {entry.sub && <span className="muted">{entry.sub}</span>}
+          {entry.plays !== undefined && <span className="faint">{entry.plays} {entry.plays === 1 ? "play" : "plays"}</span>}
+        </span>
+      </span>
+    </span>
   );
 }

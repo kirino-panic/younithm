@@ -447,7 +447,7 @@ export function TrackPage() {
             <ListeningHistory items={history.data.items} track={t} onChanged={() => { q.reload(); history.reload(); }} />
           )}
         </div>
-        {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} credits={t.artists} links={t.links} raw={t.aliases}
+        {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} image={t.image} credits={t.artists} links={t.links} raw={t.aliases}
           releases={t.releases.map((r) => ({ id: r.id, title: r.title, primary: r.primary }))}
           onClose={() => setEditing(false)} onSaved={() => { q.reload(); history.reload(); }} />}
       </div>

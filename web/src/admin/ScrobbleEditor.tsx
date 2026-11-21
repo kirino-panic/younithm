@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { X } from "lucide-react";
-import { ApiError, endpoints, type Scrobble, type ScrobbleEditBody } from "../api";
+import { ApiError, endpoints, type MergeCandidate, type Scrobble, type ScrobbleEditBody } from "../api";
 import { Autocomplete, Badge, Sheet, useData, useToast } from "../ui";
-import { PickDialog } from "./EditPanel";
+import { PickChip, PickDialog } from "./EditPanel";
 
 type Artist = { id?: number; name: string };
 type Album = { kind: "keep" } | { kind: "none" } | { kind: "existing"; id: number; name: string } | { kind: "new"; title: string };
@@ -36,7 +36,7 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [relinking, setRelinking] = useState(false);
-  const [relinkTo, setRelinkTo] = useState<{ id: number; name: string } | null>(null);
+  const [relinkTo, setRelinkTo] = useState<MergeCandidate | null>(null);
 
   const searchArtists = useCallback((q: string) => endpoints.search("artist", q).then((r) => r.items), []);
   const searchAlbums = useCallback((q: string) => endpoints.search("release", q).then((r) => r.items), []);
@@ -136,7 +136,7 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
       {relinking && (
         <PickDialog kind="recording" title="Re-link scrobble" busy={busy} err={err}
           load={(q) => (s.recording_id ? endpoints.mergeCandidates("recording", s.recording_id, q) : endpoints.candidates("recording", q))}
-          initialQuery={s.recording_id ? "" : s.title} summary={(c) => <>Link this scrobble to <strong style={{ color: "var(--label)" }}>{c.name}</strong></>} action="Re-link"
+          initialQuery={s.recording_id ? "" : s.title} summary={(c) => <>Link this scrobble to <PickChip kind="recording" entry={c} /></>} action="Re-link"
           onCancel={() => { setRelinking(false); setRelinkTo(null); setErr(""); }}
           selected={relinkTo} onSelect={setRelinkTo} onConfirm={relink} />
       )}

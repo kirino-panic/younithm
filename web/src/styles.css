@@ -784,3 +784,17 @@ a.np-link:hover .np-title { color: var(--accent); }
 .search-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .search-head h2 { font-size: var(--t-headline, var(--t-body)); font-weight: 600; }
 a.search-all:hover { color: var(--accent); }
+
+/* Names in a pick dialog's summary: links that show details on hover. */
+.pick-summary { flex: 1; min-width: 0; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.3em; }
+.pick-chip { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.pick-chip-name { color: var(--label); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-decoration-color: var(--sep-strong); text-underline-offset: 2px; }
+.pick-chip-name:hover { color: var(--accent); text-decoration-color: currentColor; }
+.pick-pop {
+  position: absolute; z-index: 5; left: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(340px, 80vw);
+  display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--sep-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: var(--t-caption); line-height: 1.4; opacity: 0; visibility: hidden; transition: opacity var(--dur); pointer-events: none;
+}
+.pick-pop-title { color: var(--label); font-weight: 600; font-size: var(--t-footnote); }
+.pick-chip:hover .pick-pop, .pick-chip:focus-within .pick-pop { opacity: 1; visibility: visible; }
