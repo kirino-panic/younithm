@@ -135,8 +135,12 @@ func fillCreditedNames(ctx context.Context, tx *sql.Tx, kind string, id int64, p
 		if a.CreditedName == "" || a.ProviderID == "" {
 			continue
 		}
+		// A credit spelled exactly like our artist's own name adds nothing (our
+		// name just differs from MusicBrainz's), and would pin that spelling
+		// over the naming preference.
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET credited_name=? WHERE `+col+`=? AND credited_name IS NULL
-			AND artist_id IN (SELECT entity_id FROM external_link WHERE entity_type='artist' AND provider=? AND provider_id=? AND status<>'candidate')`,
+			AND artist_id IN (SELECT entity_id FROM external_link WHERE entity_type='artist' AND provider=? AND provider_id=? AND status<>'candidate')
+			AND (SELECT name FROM artist WHERE id=artist_id) <> ?1`,
 			a.CreditedName, id, identity.MusicBrainz, a.ProviderID); err != nil {
 			return err
 		}

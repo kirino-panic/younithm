@@ -57,6 +57,14 @@ func TestFillCreditedNamesPairsByMusicBrainzID(t *testing.T) {
 	if got(102) != "Square" {
 		t.Fatal("overwrote a credited name")
 	}
+	// A credit spelled like our own artist name is not stored (MusicBrainz
+	// just names the artist differently from us).
+	exec(t, e.db, `UPDATE release_artist SET credited_name=NULL WHERE release_id=101`)
+	credits[0].CreditedName = "Casiopea" // MusicBrainz might call the artist "CASIOPEA"
+	run(providers.MusicBrainz)
+	if got(101) != "" {
+		t.Fatalf("stored our own name as credited: %q", got(101))
+	}
 	if n := 0; e.db.QueryRow(`SELECT COUNT(*) FROM release_artist WHERE artist_id=103`).Scan(&n) == nil && n != 0 {
 		t.Fatal("paired by name")
 	}
