@@ -329,6 +329,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 		{ISRCProv, in.ISRC, "isrc"},
 	})
 	rec := in.HintRecordingID
+	byStrongID := false // found by a MusicBrainz or Spotify id, whatever the title
 	if rec == 0 {
 		for _, x := range ids {
 			id, err := entityByLink(ctx, q, kRecording, x.prov, x.id)
@@ -346,7 +347,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 					continue
 				}
 			}
-			rec = id
+			rec, byStrongID = id, strong(x.prov)
 			break
 		}
 	}
@@ -369,7 +370,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 			return 0, err
 		}
 		if conflict {
-			rec = 0
+			rec, byStrongID = 0, false
 		}
 	}
 	if rec == 0 {
@@ -396,6 +397,11 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 	}
 	if _, err := r.attach(ctx, q, kRecording, rec, ids); err != nil {
 		return 0, err
+	}
+	if byStrongID {
+		if err := learnSpelling(ctx, q, rec, in); err != nil {
+			return 0, err
+		}
 	}
 	return rec, r.mappingCandidate(ctx, q, kRecording, rec, in.CandRecordingMBID)
 }
@@ -675,6 +681,31 @@ func recordingByAlias(ctx context.Context, q DB, in Input) (int64, error) {
 		}
 	}
 	return 0, nil
+}
+
+// learnSpelling saves the listen's artist and title as an alias of rec, which
+// a MusicBrainz or Spotify id has just proved it to be, so a later listen
+// written the same way but carrying no id still finds it. The track's own
+// title needs no alias.
+func learnSpelling(ctx context.Context, q DB, rec int64, in Input) error {
+	if ok, err := titleIs(ctx, q, rec, in.Title); err != nil || ok {
+		return err
+	}
+	artist := in.Artist
+	if Norm(artist) == "" {
+		var names []string
+		for _, c := range in.Credits {
+			if Norm(c.Name) != "" {
+				names = append(names, c.Name)
+			}
+		}
+		artist = strings.Join(names, ", ")
+	}
+	if Norm(artist) == "" {
+		return nil
+	}
+	_, err := AddAlias(ctx, q, kRecording, rec, RecordingAliasKey(artist, in.Title))
+	return err
 }
 
 // ---- helpers ----

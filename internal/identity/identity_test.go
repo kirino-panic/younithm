@@ -283,3 +283,34 @@ func TestAnEntityHoldingTheIDItselfIsNotInConflictWithIt(t *testing.T) {
 		t.Fatal("an unrelated MusicBrainz id was merged into the recording")
 	}
 }
+
+func TestStrongIDMatchLearnsNewSpelling(t *testing.T) {
+	d := setup(t)
+	cr := []Credit{{Name: "Band"}}
+	rec, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Song", RecordingMBID: "rec-1", Credits: cr})
+	// The same MBID under a new spelling lands on the track and teaches it the spelling.
+	got, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Song (bonus track)", RecordingMBID: "rec-1", Credits: cr})
+	if got != rec {
+		t.Fatalf("MBID match went to %d, want %d", got, rec)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM alias WHERE kind='recording' AND entity_id=?`, rec); n != 1 {
+		t.Fatalf("aliases=%d, want 1", n)
+	}
+	// Later, the same spelling with no id still finds the track.
+	if got, _, _ := resolve(t, d, sparse("Band", "Song (bonus track)", "")); got != rec {
+		t.Fatalf("spelling without id went to %d, want %d", got, rec)
+	}
+	// The track's own title is not stored as an alias.
+	resolve(t, d, Input{Artist: "Band", Title: "song", RecordingMBID: "rec-1", Credits: cr})
+	if n := count(t, d, `SELECT COUNT(*) FROM alias WHERE kind='recording' AND entity_id=?`, rec); n != 1 {
+		t.Fatalf("own title became an alias")
+	}
+	// An ISRC is weak: a new spelling neither matches by it nor becomes an alias.
+	isrcRec, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Other", ISRC: "US1234567890", Credits: cr})
+	if got, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Other (Live)", ISRC: "US1234567890", Credits: cr}); got == isrcRec {
+		t.Fatal("ISRC matched a different title")
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM alias WHERE kind='recording' AND entity_id=?`, isrcRec); n != 0 {
+		t.Fatal("ISRC match learned a spelling")
+	}
+}
