@@ -31,6 +31,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const [mergeInto, setMergeInto] = useState<{ id: number; name: string } | null>(null);
   const [merging, setMerging] = useState(false);
   const [akaOpen, setAkaOpen] = useState(false);
+  // Credited names are rare: the section opens by itself only when one is set.
+  const [creditedOpen, setCreditedOpen] = useState(() => (credits || []).some((c) => c.credited_name));
   const [adding, setAdding] = useState<"artist" | "album" | null>(null);
   // The display name set by hand; empty means the naming order decides.
   const [title, setTitle] = useState(override || "");
@@ -190,8 +192,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             {artists.map((a, i) => (
               <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
                 <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
-                <input className="input" style={{ flex: "1 1 0", minWidth: 0, width: 0 }} aria-label={`${a.name} credited as`} placeholder="Credited as"
-                  value={a.credited} onChange={(e) => setArtists((x) => x.map((r, j) => (j === i ? { ...r, credited: e.target.value } : r)))} />
                 {i < artists.length - 1 && (
                   <input className="input" style={{ width: 64 }} aria-label={`Between ${a.name} and the next artist`} placeholder=", "
                     value={a.join} onChange={(e) => setArtists((x) => x.map((r, j) => (j === i ? { ...r, join: e.target.value } : r)))} />
@@ -215,6 +215,29 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
               <button className="btn edit-add" onClick={() => setAdding("artist")}><Plus size={15} /> Add artist</button>
             )}
           </div>
+        </section>
+      )}
+
+      {kind !== "artist" && credits && artists.length > 0 && (
+        <section>
+          <button className="btn btn-plain" style={{ width: "100%", justifyContent: "space-between", padding: 0 }} onClick={() => setCreditedOpen((o) => !o)} aria-expanded={creditedOpen}>
+            <span className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>
+              Credited as
+              <InfoTip label="About credited as" text="The name an artist goes by on this release, when it differs from their own. Leave blank to use the artist's name." />
+            </span>
+            <ChevronRight size={16} style={{ transform: creditedOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
+          </button>
+          {creditedOpen && (
+            <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
+              {artists.map((a, i) => (
+                <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
+                  <span className="grow truncate">{a.name}</span>
+                  <input className="input" style={{ flex: "1 1 0", minWidth: 0, width: 0 }} aria-label={`${a.name} credited as`} placeholder={a.name}
+                    value={a.credited} onChange={(e) => setArtists((x) => x.map((r, j) => (j === i ? { ...r, credited: e.target.value } : r)))} />
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
