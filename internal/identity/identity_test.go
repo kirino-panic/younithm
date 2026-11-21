@@ -284,7 +284,7 @@ func TestAnEntityHoldingTheIDItselfIsNotInConflictWithIt(t *testing.T) {
 	}
 }
 
-func TestStrongIDMatchLearnsNewSpelling(t *testing.T) {
+func TestIDMatchLearnsNewSpelling(t *testing.T) {
 	d := setup(t)
 	cr := []Credit{{Name: "Band"}}
 	rec, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Song", RecordingMBID: "rec-1", Credits: cr})
@@ -304,6 +304,14 @@ func TestStrongIDMatchLearnsNewSpelling(t *testing.T) {
 	resolve(t, d, Input{Artist: "Band", Title: "song", RecordingMBID: "rec-1", Credits: cr})
 	if n := count(t, d, `SELECT COUNT(*) FROM alias WHERE kind='recording' AND entity_id=?`, rec); n != 1 {
 		t.Fatalf("own title became an alias")
+	}
+	// An Apple Music song id names one track too: a new spelling matches and is learned.
+	appleRec, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Tune", AppleSongID: "2222", Credits: cr})
+	if got, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Tune (2024 Remaster)", AppleSongID: "2222", Credits: cr}); got != appleRec {
+		t.Fatalf("Apple id match went to %d, want %d", got, appleRec)
+	}
+	if got, _, _ := resolve(t, d, sparse("Band", "Tune (2024 Remaster)", "")); got != appleRec {
+		t.Fatalf("Apple-learned spelling without id went to %d, want %d", got, appleRec)
 	}
 	// An ISRC is weak: a new spelling neither matches by it nor becomes an alias.
 	isrcRec, _, _ := resolve(t, d, Input{Artist: "Band", Title: "Other", ISRC: "US1234567890", Credits: cr})

@@ -329,7 +329,10 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 		{ISRCProv, in.ISRC, "isrc"},
 	})
 	rec := in.HintRecordingID
-	byStrongID := false // found by a MusicBrainz or Spotify id, whatever the title
+	// byID: found by a MusicBrainz, Spotify or Apple Music id, whatever the
+	// title. Those ids name one track, so a new title under one is a new
+	// spelling of it. An ISRC is shared across versions, so it is not enough.
+	byID := false
 	if rec == 0 {
 		for _, x := range ids {
 			id, err := entityByLink(ctx, q, kRecording, x.prov, x.id)
@@ -339,7 +342,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 			if id == 0 {
 				continue
 			}
-			if x.prov == Apple || x.prov == ISRCProv { // weak: the title must agree
+			if x.prov == ISRCProv { // weak: the title must agree
 				if ok, err := titleIs(ctx, q, id, in.Title); err != nil || !ok {
 					if err != nil {
 						return 0, err
@@ -347,7 +350,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 					continue
 				}
 			}
-			rec, byStrongID = id, strong(x.prov)
+			rec, byID = id, true
 			break
 		}
 	}
@@ -370,7 +373,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 			return 0, err
 		}
 		if conflict {
-			rec, byStrongID = 0, false
+			rec, byID = 0, false
 		}
 	}
 	if rec == 0 {
@@ -398,7 +401,7 @@ func (r *Resolver) resolveRecording(ctx context.Context, q DB, in Input, aids []
 	if _, err := r.attach(ctx, q, kRecording, rec, ids); err != nil {
 		return 0, err
 	}
-	if byStrongID {
+	if byID {
 		if err := learnSpelling(ctx, q, rec, in); err != nil {
 			return 0, err
 		}
@@ -684,7 +687,7 @@ func recordingByAlias(ctx context.Context, q DB, in Input) (int64, error) {
 }
 
 // learnSpelling saves the listen's artist and title as an alias of rec, which
-// a MusicBrainz or Spotify id has just proved it to be, so a later listen
+// a MusicBrainz, Spotify or Apple Music id has just proved it to be, so a later listen
 // written the same way but carrying no id still finds it. The track's own
 // title needs no alias.
 func learnSpelling(ctx context.Context, q DB, rec int64, in Input) error {
