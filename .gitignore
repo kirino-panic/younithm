@@ -22,3 +22,6 @@ data-debug/
 
 # Demo data for README screenshots (cmd/demodata)
 data-demo/
+
+# Local compose file (dev build or your own copy of docker-compose.example.yml)
+/docker-compose.yml

@@ -1,56 +1,45 @@
-# younithm
 
-A self-hosted scrobble server. Scrobblers send listens to it through a ListenBrainz-compatible API, you import your history from other services, and it links every listen to artists, tracks and albums using MusicBrainz, Spotify and Apple Music. It serves a public page of what you listen to, and an admin area for editing and imports.
+# Younithm
+![Younithm screenshot](screenshot.png)
 
-One Go binary with the web frontend embedded, one SQLite database, one Docker image.
+A smarter stats page, for the power listener.
 
-## Run it
+Powered by a ListenBrainz-compatible API so you can scrobble wherever, whenever.
 
-```bash
-docker compose up -d
-```
+## What makes Younithm special?
+Unlike other scrobblers, Younithm leverages direct connections to streaming services like Spotify and Apple Music, as well as databases like MusicBrainz, to smartly de-duplicate releases and provide the most accurate stats possible.
 
-Open `http://localhost:2015`. The first visitor creates the admin account, then a short welcome flow sets up your profile, connections and first import.
+When you scrobble a track, it uses additional metadata like catalog IDs and ISRCs to match tracks and albums across streaming platforms, regardless of language or metadata differences. It combines this with advanced heuristics to match your library between platforms seamlessly, so no matter where you listen, your stats stay squeaky-clean.
 
-All state lives in the `/config` volume (`./data` in the compose file): the database, the master key, artwork and backups. Back up `master.key` on its own; without it, stored provider keys can't be decrypted.
+Where other frontends think "Unfold" and "Unfold (feat. TEED)" are two completely unrelated tracks, Younithm can see "気まぐれメルシィ" and "Kimagure Mercy (feat. Hatsune Miku)" and know with confidence that they're one and the same.
 
-## Configuration
+And, if it does get it wrong, Younithm makes it real easy to fix, too.
 
-Everything is optional.
+Bring your history with you from Spotify and Apple Music, or from other scrobblers like Koito, Maloja, ListenBrainz, or last.fm (experimental).
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `YOUNITHM_ADDR` | `:2015` | Listen address |
-| `YOUNITHM_BASE_PATH` | empty | Serve under a path such as `/younithm` instead of a whole domain |
-| `YOUNITHM_CONFIG_DIR` | `/config` | Database, master key, artwork, uploads, backups |
-| `YOUNITHM_TRUSTED_PROXIES` | empty | Reverse proxy IPs/CIDRs whose `X-Forwarded-*` headers are trusted |
-| `YOUNITHM_TRUSTED_PROXY` | `false` | Trust `X-Forwarded-*` from any peer (prefer the list above) |
-| `YOUNITHM_MASTER_KEY` | unset | Master key, 32 bytes as base64 or hex |
-| `YOUNITHM_MASTER_KEY_FILE` | unset | File holding the master key (e.g. a Docker secret) |
-| `MUSICBRAINZ_CONTACT` | empty | Contact for the MusicBrainz User-Agent; can also be set in Connections |
-| `YOUNITHM_ENABLE_ITUNES` | `false` | Keyless iTunes Search fallback while no Apple Music keys are set |
-| `YOUNITHM_DEDUPE_WINDOW` | `2s` | Live scrobbles closer than this, same artist and title, count once |
-| `YOUNITHM_IMPORT_DEDUPE_WINDOW` | `30s` | The same tolerance for imports |
-| `YOUNITHM_IMPORT_MAX_BYTES` | 1 GiB | Largest accepted import file |
-| `PUID` / `PGID` | `99` / `100` | Container user (Unraid defaults) |
+## Requirements
+Prerequisites:
+- Docker Compose
+- A ListenBrainz-compatible scrobbler (I recommend [Multi-Scrobbler](https://docs.multi-scrobbler.app/))
 
-Development switches are in [docs/development.md](docs/development.md).
+Optionally:
+- An email address (for MusicBrainz API integration)
+- Spotify Premium (for Spotify API integration)
+- An Apple Developer account (for Apple Music API integration)
 
-## Connect a scrobbler
+*While these things aren't strictly required, they're at the very least recommended, as Younithm relies on these connections to be able to do its smart matching.*
 
-Point any ListenBrainz client (Multi-Scrobbler, Web Scrobbler, Navidrome and others) at `http://<host>:2015` (or `/apis/listenbrainz`) and use the token you chose under **Admin → Connections**. See [docs/api.md](docs/api.md).
+To get started, rename `docker-compose.example.yml` to `docker-compose.yml`, and then run `docker compose up -d`.
 
-## Documentation
+Then visit the web UI (default at `http://localhost:2015`) to get set up, and with a quick snap of the fingers, that's all there is to it!
 
-| | |
-|---|---|
-| [Architecture](docs/architecture.md) | How the pieces fit, the data model, background workers |
-| [Identity](docs/identity.md) | How a listen becomes artists, a track and an album |
-| [Providers](docs/providers.md) | MusicBrainz, Spotify, Apple Music and the enrichment worker |
-| [Imports](docs/imports.md) | Supported formats, the import lifecycle, dedupe |
-| [Editing](docs/editing.md) | Editing, merging, aliases and undo |
-| [Artwork](docs/artwork.md) | Covers and artist images |
-| [API](docs/api.md) | Scrobbler, public and auth endpoints |
-| [Security](docs/security.md) | Admin auth, the scrobble token, secrets, proxies |
-| [Deployment](docs/deployment.md) | Docker, Unraid, reverse proxies, backups, password reset |
-| [Development](docs/development.md) | Building, running locally, tests, debug tools |
+## Additional Options
+If you want Younithm to run under a path instead of the root domain (e.g. `example.com/example`), add `YOUNITHM_BASE_PATH: /example` to your environment variables.
+
+If you'd like to use the free iTunes Search API as a fallback (in lieu of the Apple Music API) (VERY EXPERIMENTAL, basically untested), then set `YOUNITHM_ENABLE_ITUNES: true` in your environment variables.
+
+## AI Disclosure
+This project was developed with significant help from Claude. I've tested it all myself, and much of the research was mine (I have an autistic fascination with streaming services, for some reason), but much of the code was done by AI agents. 
+
+## License
+Younithm is licensed under the [GNU Affero General Public License v3.0](LICENSE).
