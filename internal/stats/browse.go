@@ -16,10 +16,13 @@ import (
 // Library lists: every artist, album or track with at least one play.
 //
 //	GET /library/{kind}?sort=plays|name|last&q=&limit=&offset=
+//	GET /library/tracks?artist={id}   every track credited to the artist
 //
 // Plays are counted the way the entity pages count them: an artist's are the
 // listens of every recording it is credited on, an album's are the listens
-// played from it, a track's are its own.
+// played from it, a track's are its own. An artist's track list also holds
+// the tracks it is credited on that have no plays yet, as its page's top
+// tracks do.
 
 type browseItem struct {
 	ID     int64   `json:"id"`
@@ -30,15 +33,28 @@ type browseItem struct {
 	AlbumID *int64   `json:"album_id,omitempty"`
 	Album   *string  `json:"album,omitempty"`
 	Plays   int64    `json:"plays"`
-	Last    string   `json:"last_played"`
+	Last    *string  `json:"last_played"` // null for an unplayed track
 	Image   string   `json:"image,omitempty"`
 	artPath *string
 }
 
 // browseQuery returns the columns id, name, artist, album_id, album, n (plays),
 // last (last played) and art (artwork path), plus the artwork kind ("" for a
-// track, whose image is its album's).
-func browseQuery(kind string) (string, string, bool) {
+// track, whose image is its album's). artist > 0 limits tracks to those
+// credited to that artist, played or not.
+func browseQuery(kind string, artist int64) (string, string, bool) {
+	const primaryRelease = `
+LEFT JOIN release pr ON pr.id = (SELECT rr.release_id FROM recording_release rr
+  WHERE rr.recording_id = rec.id ORDER BY rr.is_primary DESC, rr.release_id LIMIT 1)`
+	if kind == "tracks" && artist > 0 {
+		return `
+SELECT rec.id AS id, rec.title AS name, ` + creditLine + ` AS artist, pr.id AS album_id, pr.title AS album,
+  p.n AS n, p.last AS last, NULL AS art FROM (
+  SELECT me.recording_id AS id, COUNT(s.id) AS n, MAX(s.played_at) AS last
+  FROM recording_artist me LEFT JOIN scrobble s ON s.recording_id = me.recording_id AND s.user_id = 1
+  WHERE me.artist_id = ` + strconv.FormatInt(artist, 10) + ` GROUP BY me.recording_id) p
+JOIN recording rec ON rec.id = p.id` + primaryRelease, "", true
+	}
 	switch kind {
 	case "artists":
 		return `
@@ -60,9 +76,7 @@ SELECT rec.id AS id, rec.title AS name, ` + creditLine + ` AS artist, pr.id AS a
   p.n AS n, p.last AS last, NULL AS art FROM (
   SELECT recording_id AS id, COUNT(*) AS n, MAX(played_at) AS last
   FROM scrobble WHERE user_id = 1 AND recording_id IS NOT NULL GROUP BY recording_id) p
-JOIN recording rec ON rec.id = p.id
-LEFT JOIN release pr ON pr.id = (SELECT rr.release_id FROM recording_release rr
-  WHERE rr.recording_id = rec.id ORDER BY rr.is_primary DESC, rr.release_id LIMIT 1)`, "", true
+JOIN recording rec ON rec.id = p.id` + primaryRelease, "", true
 	}
 	return "", "", false
 }
@@ -70,7 +84,7 @@ LEFT JOIN release pr ON pr.id = (SELECT rr.release_id FROM recording_release rr
 var browseOrder = map[string]string{
 	"plays": "n DESC, shown COLLATE NOCASE, id",
 	"name":  "shown COLLATE NOCASE, id",
-	"last":  "last DESC, id",
+	"last":  "last IS NULL, last DESC, id",
 }
 
 // browseEntity is the entity_name type of each list, and the table crediting
@@ -110,7 +124,16 @@ func likePattern(q string) string {
 
 func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	kind := chi.URLParam(r, "kind")
-	inner, artKind, ok := browseQuery(kind)
+	var artist int64
+	if v := r.URL.Query().Get("artist"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 || kind != "tracks" {
+			apiError(w, 400, "artist must be an artist id, on tracks")
+			return
+		}
+		artist = n
+	}
+	inner, artKind, ok := browseQuery(kind, artist)
 	if !ok {
 		apiError(w, 404, "kind must be artists, albums or tracks")
 		return

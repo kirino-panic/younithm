@@ -1,14 +1,15 @@
 // Artist, album and track pages.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronDown, Pencil, Trash2 } from "lucide-react";
-import { ApiError, endpoints, type Chart as ChartData, type ChartPoint, type Credit, type RecordingPage, type Scrobble } from "../api";
+import { ApiError, endpoints, type Chart as ChartData, type ChartPoint, type Credit, type LibrarySort, type RecordingPage, type Scrobble } from "../api";
 import { useSession } from "../session";
 import { fmtDate, fmtDay, fmtDuration, fmtNum } from "../format";
 import { Cover, Segmented, useData, useEscape, useToast } from "../ui";
 import { EditPanel } from "../admin/EditPanel";
 import { ScrobbleEditor } from "../admin/ScrobbleEditor";
 import { DeleteDialog, useDeleteScrobble } from "../library/Scrobbles";
+import { BrowseTable, SearchField, libraryHref, useBrowse, useInfinite } from "../library/Library";
 
 type Period = keyof ChartData;
 type Kind = "artist" | "release" | "recording";
@@ -281,10 +282,50 @@ export function ArtistPage() {
               </Rows>
             </Tile>
           )}
+          <AllTracks artist={a.id} />
         </div>
         {editing && <EditPanel kind="artist" id={a.id} name={a.name} override={a.display_name} image={a.image} imageCustom={a.image_custom} links={a.links} raw={a.aliases} onClose={() => setEditing(false)} onSaved={q.reload} />}
       </div>
     )}</Gate>
+  );
+}
+
+const TRACK_SORTS: { value: LibrarySort; label: string }[] = [
+  { value: "plays", label: "Plays" }, { value: "name", label: "Name" }, { value: "last", label: "Recent" },
+];
+
+// Every track the artist is credited on, played or not, as the library lists tracks.
+function AllTracks({ artist }: { artist: number }) {
+  const [sort, setSort] = useState<LibrarySort>("plays");
+  const [q, setQ] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => { const t = window.setTimeout(() => setQuery(q.trim()), 250); return () => window.clearTimeout(t); }, [q]);
+  const [total, setTotal] = useState<number | null>(null);
+  return (
+    <Tile title="All tracks" end={total !== null && <span className="muted num">{fmtNum(total)}</span>}>
+      <div className="lib-bar artist-tracks-bar">
+        <SearchField value={q} onChange={setQ} placeholder="Title, artist or album" />
+        <div className="lib-controls">
+          <Segmented label="Sort" value={sort} onChange={setSort} options={TRACK_SORTS} />
+        </div>
+      </div>
+      <TrackPages key={`${artist}/${sort}/${query}`} artist={artist} sort={sort} query={query} onTotal={(n) => { if (!query) setTotal(n); }} />
+    </Tile>
+  );
+}
+
+function TrackPages({ artist, sort, query, onTotal }: { artist: number; sort: LibrarySort; query: string; onTotal: (n: number) => void }) {
+  const load = useCallback((offset: number) => endpoints.artistTracks(artist, sort, query, offset), [artist, sort, query]);
+  const b = useBrowse(load);
+  const sentinel = useInfinite(b.more, b.done || b.failed, b.busy);
+  useEffect(() => { if (b.total !== null) onTotal(b.total); }, [b.total]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <>
+      <BrowseTable kind="tracks" items={b.items} href={libraryHref("tracks")} />
+      {b.total === 0 && <div className="empty">{query ? "Nothing matches." : "No tracks yet."}</div>}
+      {b.failed && <div className="empty">Couldn't load. <button className="btn" onClick={b.more}>Retry</button></div>}
+      {!b.done && !b.failed && <div ref={sentinel} className="empty faint">{b.busy ? "Loading…" : ""}</div>}
+    </>
   );
 }
 

@@ -119,7 +119,8 @@ export function Private({ title }: { title: string }) {
 
 // ---------- Artists, albums, tracks ----------
 
-function useBrowse(kind: LibraryKind, sort: LibrarySort, query: string) {
+// One list, loaded a page at a time from load(offset).
+export function useBrowse(load: (offset: number) => Promise<{ total: number; items: LibraryItem[] }>) {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -129,18 +130,19 @@ function useBrowse(kind: LibraryKind, sort: LibrarySort, query: string) {
   const more = useCallback(() => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setFailed(false);
-    endpoints.library(kind, sort, query, items.length).then((r) => {
+    load(items.length).then((r) => {
       setItems((cur) => [...cur, ...r.items]);
       setTotal(r.total);
     }, () => setFailed(true)).finally(() => { busyRef.current = false; setBusy(false); });
-  }, [kind, sort, query, items.length]);
+  }, [load, items.length]);
 
   useEffect(() => { more(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { items, total, busy, failed, more, done: total !== null && items.length >= total };
 }
 
 function Browse({ kind, sort, query, grid }: { kind: LibraryKind; sort: LibrarySort; query: string; grid: boolean }) {
-  const b = useBrowse(kind, sort, query);
+  const load = useCallback((offset: number) => endpoints.library(kind, sort, query, offset), [kind, sort, query]);
+  const b = useBrowse(load);
   const { more, done, busy, failed } = b;
   const sentinel = useInfinite(more, done || failed, busy);
 
@@ -169,7 +171,7 @@ export const libraryHref = (kind: LibraryKind) => (it: LibraryItem) => `/${kind 
 // Artists or albums as cover cards: name, then plays (or when last played).
 export function CoverGrid({ kind, items, sort = "plays" }: { kind: LibraryKind; items: LibraryItem[]; sort?: LibrarySort }) {
   const href = libraryHref(kind);
-  const sub = (it: LibraryItem) => (sort === "last" ? fmtAgo(it.last_played) : `${fmtNum(it.plays)} ${it.plays === 1 ? "play" : "plays"}`);
+  const sub = (it: LibraryItem) => (sort === "last" ? (it.last_played ? fmtAgo(it.last_played) : "–") : `${fmtNum(it.plays)} ${it.plays === 1 ? "play" : "plays"}`);
   return (
     <div className="cover-grid lib-grid">
       {items.map((it) => (
@@ -216,7 +218,7 @@ export function BrowseTable({ kind, items, href }: { kind: LibraryKind; items: L
               </td>
             )}
             <td className="num end">{fmtNum(it.plays)}</td>
-            <td className="faint num end hide-sm" title={fmtDate(it.last_played)}>{fmtAgo(it.last_played)}</td>
+            <td className="faint num end hide-sm" title={it.last_played ? fmtDate(it.last_played) : undefined}>{it.last_played ? fmtAgo(it.last_played) : "–"}</td>
           </tr>
         ))}
       </tbody>

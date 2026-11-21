@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,11 @@ import (
 )
 
 func librarySetup(t *testing.T) http.Handler {
+	h, _ := librarySetupDB(t)
+	return h
+}
+
+func librarySetupDB(t *testing.T) (http.Handler, *sql.DB) {
 	_, d := setup(t)
 	seed(t, d)
 	exec(t, d, `INSERT INTO artist(id,name) VALUES (2,'Guest')`)
@@ -24,7 +30,7 @@ func librarySetup(t *testing.T) http.Handler {
 	h.now = func() time.Time { return time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC) }
 	r := chi.NewRouter()
 	h.MountLibrary(r, nil, nil)
-	return r
+	return r, d
 }
 
 func TestArtistPage(t *testing.T) {

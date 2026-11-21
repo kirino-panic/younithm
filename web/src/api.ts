@@ -135,7 +135,7 @@ export interface Stats {
 
 export type LibraryKind = "artists" | "albums" | "tracks";
 export type LibrarySort = "plays" | "name" | "last";
-export interface LibraryItem { id: number; name: string; artist?: string; artists?: Credit[]; album_id?: number; album?: string; plays: number; last_played: string; image?: string }
+export interface LibraryItem { id: number; name: string; artist?: string; artists?: Credit[]; album_id?: number; album?: string; plays: number; last_played: string | null; image?: string }
 export interface Scrobble extends Listen {
   source: string | null; recording_id: number | null; release_id: number | null; matched: boolean;
   artists: Credit[]; // credited artists in order; empty when unmatched
@@ -199,6 +199,8 @@ export const endpoints = {
   recordingHistory: (id: string) => api.get<{ items: { id: number; played_at: string; release_id: number | null; album: string | null }[] }>(`/api/v1/recordings/${id}/history`),
   librarySearch: (kind: LibraryKind, q: string, limit: number) =>
     api.get<{ total: number; items: LibraryItem[] }>(`/api/v1/library/${kind}?sort=plays&limit=${limit}&q=${encodeURIComponent(q)}`),
+  artistTracks: (artist: number, sort: LibrarySort, q: string, offset = 0) =>
+    api.get<{ total: number; items: LibraryItem[] }>(`/api/v1/library/tracks?artist=${artist}&sort=${sort}&limit=60&offset=${offset}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   library: (kind: LibraryKind, sort: LibrarySort, q: string, offset = 0) =>
     api.get<{ total: number; items: LibraryItem[] }>(`/api/v1/library/${kind}?sort=${sort}&limit=60&offset=${offset}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   site: () => api.get<{ sections: Record<string, boolean> }>("/api/v1/site"),

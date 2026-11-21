@@ -155,3 +155,43 @@ func TestLibrarySearchesTrackAliases(t *testing.T) {
 		t.Fatalf("track by alias %+v", out)
 	}
 }
+
+func TestArtistTrackList(t *testing.T) {
+	h, d := librarySetupDB(t)
+	// An unplayed track of Matched Artist's still lists, last.
+	exec(t, d, `INSERT INTO recording(id,title) VALUES (3,'Unplayed')`)
+	exec(t, d, `INSERT INTO recording_artist(recording_id,artist_id,position) VALUES (3,1,0)`)
+	type out struct {
+		Total int64        `json:"total"`
+		Items []browseItem `json:"items"`
+	}
+	var all out
+	if c := get(t, h, "/library/tracks?artist=1", &all); c != 200 {
+		t.Fatalf("status %d", c)
+	}
+	if all.Total != 3 || all.Items[0].Name != "Song One" || all.Items[0].Plays != 2 ||
+		all.Items[2].Name != "Unplayed" || all.Items[2].Plays != 0 || all.Items[2].Last != nil {
+		t.Fatalf("artist tracks %+v", all)
+	}
+	var recent out
+	get(t, h, "/library/tracks?artist=1&sort=last", &recent)
+	if recent.Items[0].Name != "Feature" || recent.Items[2].Name != "Unplayed" {
+		t.Fatalf("by last played %+v", recent)
+	}
+	var guest out
+	get(t, h, "/library/tracks?artist=2&q=feat", &guest)
+	if guest.Total != 1 || guest.Items[0].Name != "Feature" {
+		t.Fatalf("guest %+v", guest)
+	}
+	// The library list itself still holds played tracks only.
+	var lib out
+	get(t, h, "/library/tracks", &lib)
+	if lib.Total != 2 {
+		t.Fatalf("library %+v", lib)
+	}
+	for _, bad := range []string{"/library/albums?artist=1", "/library/tracks?artist=x", "/library/tracks?artist=0"} {
+		if c := get(t, h, bad, nil); c != 400 {
+			t.Fatalf("%s: status %d", bad, c)
+		}
+	}
+}
