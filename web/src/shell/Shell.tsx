@@ -29,7 +29,7 @@ export function PublicShell() {
     const h = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
       e.preventDefault();
-      const field = document.querySelector<HTMLInputElement>(".search-field input");
+      const field = document.querySelector<HTMLInputElement>(".search-page .lib-search input");
       if (field) field.focus();
       else nav("/search");
     };

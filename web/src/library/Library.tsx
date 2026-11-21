@@ -26,7 +26,7 @@ export function Library() {
   const site = useData(() => (admin ? Promise.resolve(null) : endpoints.site()), [admin]);
   const tab = pick(params.get("tab"), ["artists", "albums", "tracks"] as const, "artists");
   const sort = pick(params.get("sort"), ["plays", "name", "last"] as const, "name");
-  const [view, setViewState] = useState<View>(() => pick(stored("library.view"), ["grid", "list"] as const, "grid"));
+  const [view, setViewState] = useState<View>(storedLibraryView);
   const setView = (v: View) => { setViewState(v); store("library.view", v); };
   const [q, setQ, query] = useSearchParam(params, setParams);
   const set = (patch: Record<string, string | null>) => setParams((p) => withParams(p, patch), { replace: true });
@@ -76,11 +76,11 @@ export function useSearchParam(params: URLSearchParams, setParams: ReturnType<ty
   return [q, setQ, query] as const;
 }
 
-export function SearchField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SearchField({ value, onChange, placeholder, autoFocus }: { value: string; onChange: (v: string) => void; placeholder: string; autoFocus?: boolean }) {
   return (
     <div className="lib-search">
       <Search size={15} className="faint" />
-      <input className="input" type="search" aria-label="Search" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+      <input className="input" type="search" aria-label="Search" autoFocus={autoFocus} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -145,24 +145,13 @@ function Browse({ kind, sort, query, grid }: { kind: LibraryKind; sort: LibraryS
   const sentinel = useInfinite(more, done || failed, busy);
 
   const empty = b.total === 0 && <div className="empty">{query ? "Nothing matches." : `No ${kind} yet.`}</div>;
-  const sub = (it: LibraryItem) => (sort === "last" ? fmtAgo(it.last_played) : `${fmtNum(it.plays)} ${it.plays === 1 ? "play" : "plays"}`);
-  const href = (it: LibraryItem) => `/${kind === "artists" ? "artist" : kind === "albums" ? "album" : "track"}/${it.id}`;
+  const href = libraryHref(kind);
 
   return (
     <>
       {b.total !== null && <p className="faint num lib-count">{fmtNum(b.total)} {kind}</p>}
       {grid ? (
-        empty || (
-          <div className="cover-grid lib-grid">
-            {b.items.map((it) => (
-              <Link key={it.id} to={href(it)} className="cover-card">
-                <Cover name={it.name} src={it.image} size="100%" round={kind === "artists"} />
-                <span className="list-title truncate">{it.name}</span>
-                <span className="list-sub truncate num">{kind === "albums" && it.artist ? `${it.artist} · ${sub(it)}` : sub(it)}</span>
-              </Link>
-            ))}
-          </div>
-        )
+        empty || <CoverGrid kind={kind} items={b.items} sort={sort} />
       ) : (
         <div className="card">
           <BrowseTable kind={kind} items={b.items} href={href} />
@@ -175,7 +164,29 @@ function Browse({ kind, sort, query, grid }: { kind: LibraryKind; sort: LibraryS
   );
 }
 
-function BrowseTable({ kind, items, href }: { kind: LibraryKind; items: LibraryItem[]; href: (it: LibraryItem) => string }) {
+export const libraryHref = (kind: LibraryKind) => (it: LibraryItem) => `/${kind === "artists" ? "artist" : kind === "albums" ? "album" : "track"}/${it.id}`;
+
+// Artists or albums as cover cards: name, then plays (or when last played).
+export function CoverGrid({ kind, items, sort = "plays" }: { kind: LibraryKind; items: LibraryItem[]; sort?: LibrarySort }) {
+  const href = libraryHref(kind);
+  const sub = (it: LibraryItem) => (sort === "last" ? fmtAgo(it.last_played) : `${fmtNum(it.plays)} ${it.plays === 1 ? "play" : "plays"}`);
+  return (
+    <div className="cover-grid lib-grid">
+      {items.map((it) => (
+        <Link key={it.id} to={href(it)} className="cover-card">
+          <Cover name={it.name} src={it.image} size="100%" round={kind === "artists"} />
+          <span className="list-title truncate">{it.name}</span>
+          <span className="list-sub truncate num">{kind === "albums" && it.artist ? `${it.artist} · ${sub(it)}` : sub(it)}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// The view (grid or list) last picked on the Library page.
+export const storedLibraryView = (): View => pick(stored("library.view"), ["grid", "list"] as const, "grid");
+
+export function BrowseTable({ kind, items, href }: { kind: LibraryKind; items: LibraryItem[]; href: (it: LibraryItem) => string }) {
   const nav = useNavigate();
   if (!items.length) return null;
   return (

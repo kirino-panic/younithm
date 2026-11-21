@@ -769,12 +769,8 @@ a.np-link:hover .np-title { color: var(--accent); }
 
 /* ---------- Search ---------- */
 
-.search-field { position: relative; max-width: 560px; }
-.search-field svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-.search-field .input { width: 100%; height: 40px; padding-left: 38px; font-size: var(--t-body); }
-.search-results { display: flex; flex-direction: column; gap: var(--s4); }
-.search-results .card + .card { margin-top: 0; }
-.search-section .card-head { margin-bottom: var(--s1); }
-.search-all { font-size: var(--t-caption); color: var(--label-2); }
-.search-all:hover { color: var(--accent); }
-.search-row:hover .list-title, .search-row.selected .list-title { color: var(--accent); }
+/* Each kind is a Library-style block under its own heading. */
+.lib > .search-section + .search-section { margin-top: var(--s4); }
+.search-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.search-head h2 { font-size: var(--t-headline, var(--t-body)); font-weight: 600; }
+a.search-all:hover { color: var(--accent); }
