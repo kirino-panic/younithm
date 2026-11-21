@@ -116,7 +116,8 @@ func applyTrack(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Track
 // fillCreditedNames stores, on our credits of a recording or release, the
 // names a MusicBrainz credit list says the artists are credited as ("The
 // Square" for T-SQUARE). A credit is paired only through the MusicBrainz
-// artist id our artist holds, never by name or position. It fills gaps only:
+// artist id our artist holds, never by name or position, and an id the list
+// credits twice is skipped. It fills gaps only:
 // a credited name already set is kept, and an entity edited by hand is left
 // alone.
 func fillCreditedNames(ctx context.Context, tx *sql.Tx, kind string, id int64, provider string, artists []providers.Artist) error {
@@ -131,8 +132,15 @@ func fillCreditedNames(ctx context.Context, tx *sql.Tx, kind string, id int64, p
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE entity_type=? AND entity_id=? AND scope<>'link'`, kind, id).Scan(&edited); err != nil || edited > 0 {
 		return err
 	}
+	// An artist credited more than once (ATLUS Sound Team, then the same
+	// artist again as "ATLUS GAME MUSIC") cannot be told apart by id: which of
+	// our credits a name belongs to is unknown, so none gets it.
+	seen := map[string]int{}
 	for _, a := range artists {
-		if a.CreditedName == "" || a.ProviderID == "" {
+		seen[a.ProviderID]++
+	}
+	for _, a := range artists {
+		if a.CreditedName == "" || a.ProviderID == "" || seen[a.ProviderID] > 1 {
 			continue
 		}
 		// A credit spelled exactly like our artist's own name adds nothing (our

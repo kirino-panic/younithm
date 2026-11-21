@@ -65,6 +65,18 @@ func TestFillCreditedNamesPairsByMusicBrainzID(t *testing.T) {
 	if got(101) != "" {
 		t.Fatalf("stored our own name as credited: %q", got(101))
 	}
+	// The same artist credited twice, once under another name: which of our
+	// credits the name belongs to is unknown, so nothing is stored.
+	credits = []providers.Artist{
+		{ProviderID: "mb-c", Name: "Casiopea", JoinPhrase: " / "},
+		{ProviderID: "mb-s", Name: "T-SQUARE", JoinPhrase: " / "},
+		{ProviderID: "mb-s", Name: "T-SQUARE", CreditedName: "The Square"},
+	}
+	exec(t, e.db, `UPDATE release_artist SET credited_name=NULL WHERE release_id=101`)
+	run(providers.MusicBrainz)
+	if got(102) != "" {
+		t.Fatalf("guessed which credit a repeated artist's name belongs to: %q", got(102))
+	}
 	if n := 0; e.db.QueryRow(`SELECT COUNT(*) FROM release_artist WHERE artist_id=103`).Scan(&n) == nil && n != 0 {
 		t.Fatal("paired by name")
 	}
