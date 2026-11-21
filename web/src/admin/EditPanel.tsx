@@ -366,7 +366,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
           {selected && summary(selected)}
         </span>
         <button className="btn" onClick={onCancel}>Cancel</button>
-        <button className={`btn ${danger ? "btn-danger" : "btn-primary"}`} disabled={!selected || busy} onClick={onConfirm}>{action}</button>
+        <button className={`btn btn-primary${danger ? " btn-danger" : ""}`} disabled={!selected || busy} onClick={onConfirm}>{action}</button>
       </div>
     </Modal>
   );

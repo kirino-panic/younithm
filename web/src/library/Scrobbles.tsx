@@ -178,6 +178,7 @@ function DeleteDialog({ s, onClose, remove: doRemove }: { s: Scrobble; onClose: 
   return (
     <Modal onClose={onClose}>
       <h3 style={{ fontSize: 17 }}>Delete this scrobble?</h3>
+      <p className="muted" style={{ fontSize: 13 }}>Tip: Holding Shift while clicking delete skips this dialogue box.</p>
       {err && <p className="muted" role="alert" style={{ color: "var(--danger)", fontSize: 13 }}>{err}</p>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn" onClick={onClose}>Cancel</button>
