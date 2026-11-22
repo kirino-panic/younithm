@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { endpoints, withStepUp, ApiError } from "../api";
+import { endpoints, ApiError } from "../api";
 import { fmtNum } from "../format";
 import { normalize } from "../home/doc";
-import { ActionRow, Group, Modal, SettingRow, Switch, useData, usePasswordPrompt, useToast } from "../ui";
+import { ActionRow, Group, Modal, SettingRow, Switch, useData, useToast } from "../ui";
 
 // Tools for testing and cleanup. Nothing here is needed day to day.
 export function Debug() {
   const toast = useToast();
-  const ask = usePasswordPrompt();
   const nav = useNavigate();
   const dbg = useData(() => endpoints.debug(), []);
   const d = dbg.data;
@@ -129,7 +128,7 @@ export function Debug() {
       {confirm && (
         <ClearDialog onClose={() => setConfirm(false)} counts={d.counts.scrobbles} onConfirm={async () => {
           try {
-            await withStepUp(() => endpoints.clearLibrary(), ask);
+            await endpoints.clearLibrary();
             setConfirm(false);
             dbg.reload();
             toast({ text: "Library cleared" });

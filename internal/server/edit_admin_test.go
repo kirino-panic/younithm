@@ -51,15 +51,7 @@ func TestEditAdminEndpoints(t *testing.T) {
 		t.Fatalf("bad recording: %d %s", resp.StatusCode, body)
 	}
 
-	// Merge needs step-up.
 	mergePath := fmt.Sprintf("%s/entities/recording/%d/merge", p, recA)
-	resp, body = e.do("POST", mergePath, map[string]any{"into": recB})
-	if resp.StatusCode != 403 || !strings.Contains(body, "step_up_required") {
-		t.Fatalf("merge without step-up: %d %s", resp.StatusCode, body)
-	}
-	if resp, _ := e.do("POST", p+"/scrobbles/bulk/apply", map[string]any{}); resp.StatusCode != 403 {
-		t.Fatalf("bulk apply without step-up: %d", resp.StatusCode)
-	}
 	// Bulk preview is read-only and needs only the session.
 	resp, body = e.do("POST", p+"/scrobbles/bulk/preview", map[string]any{
 		"filter": map[string]any{"recording_id": recA}, "set": map[string]any{"release_id": nil}})
@@ -67,9 +59,7 @@ func TestEditAdminEndpoints(t *testing.T) {
 		t.Fatalf("preview: %d %s", resp.StatusCode, body)
 	}
 
-	if resp, body := e.do("POST", "/api/v1/auth/reauth", map[string]string{"password": adminPW}); resp.StatusCode != 200 {
-		t.Fatalf("reauth: %d %s", resp.StatusCode, body)
-	}
+	// Merge needs only the session, no password.
 	resp, body = e.do("POST", mergePath, map[string]any{"into": recB})
 	if resp.StatusCode != 200 {
 		t.Fatalf("merge: %d %s", resp.StatusCode, body)

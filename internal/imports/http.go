@@ -33,23 +33,22 @@ func apiErr(w http.ResponseWriter, status int, code, msg string) {
 }
 
 // Mount registers the admin import endpoints under /admin/imports of r
-// (normally the /api/v1 group). Everything needs an admin session; confirm and retry also need a recent step-up, because
-// they write scrobbles in bulk.
+// (normally the /api/v1 group). Everything needs an admin session.
 //
 //	POST   /admin/imports              multipart "file"; ?format= ?dedupe_window= ?spotify_min_ms= ?fuzzy_consent= ?debug_limit=
 //	POST   /admin/imports/check        {"head": base64} or {"entries": [...]}: format (and Apple file roles), nothing stored
 //	POST   /admin/imports/{id}/files   another file for an import that is awaiting_files (Apple Music: both CSVs)
 //	GET    /admin/imports              jobs, supported formats, defaults
 //	GET    /admin/imports/{id}         job with preview/result
-//	POST   /admin/imports/{id}/confirm apply the previewed import (step-up); ?when_ready=1 also
+//	POST   /admin/imports/{id}/confirm apply the previewed import; ?when_ready=1 also
 //	                                accepts a job still awaiting files or being read: it applies once previewed
-//	POST   /admin/imports/{id}/retry   re-run a failed job (step-up)
+//	POST   /admin/imports/{id}/retry   re-run a failed job
 //	POST   /admin/imports/{id}/cancel
 //	DELETE /admin/imports/{id}         remove a finished job record
-func (m *Manager) Mount(r chi.Router) { m.MountWith(r, auth.RequireSession, auth.RequireStepUp) }
+func (m *Manager) Mount(r chi.Router) { m.MountWith(r, auth.RequireSession) }
 
 // MountWith is Mount with explicit middleware (tests).
-func (m *Manager) MountWith(r chi.Router, session, stepUp func(http.Handler) http.Handler) {
+func (m *Manager) MountWith(r chi.Router, session func(http.Handler) http.Handler) {
 	r.Route("/admin/imports", func(r chi.Router) {
 		r.Use(session)
 		r.Post("/", m.upload)
@@ -59,8 +58,8 @@ func (m *Manager) MountWith(r chi.Router, session, stepUp func(http.Handler) htt
 			r.Get("/", m.get)
 			r.Post("/cancel", m.cancel)
 			r.Delete("/", m.delete)
-			r.With(stepUp).Post("/confirm", m.confirm)
-			r.With(stepUp).Post("/retry", m.retry)
+			r.Post("/confirm", m.confirm)
+			r.Post("/retry", m.retry)
 			r.Post("/files", m.addFile)
 		})
 	})

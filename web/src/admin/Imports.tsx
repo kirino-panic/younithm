@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Upload, X } from "lucide-react";
-import { api, endpoints, ApiError, withStepUp, type ImportJob } from "../api";
+import { api, endpoints, ApiError, type ImportJob } from "../api";
 import { fmtDate, fmtNum } from "../format";
-import { ActionRow, Group, InfoTip, SettingRow, Status, Switch, useData, usePasswordPrompt, useToast } from "../ui";
+import { ActionRow, Group, InfoTip, SettingRow, Status, Switch, useData, useToast } from "../ui";
 import { AdminHead, useQueue } from "./AdminLayout";
 import { t } from "../onboarding/copy";
 
@@ -11,7 +11,6 @@ const ACTIVE = ["queued", "running"];
 
 export function Imports() {
   const list = useData(() => endpoints.imports(), []);
-  const ask = usePasswordPrompt();
   const [current, setCurrent] = useState<ImportJob | null>(null);
   const [err, setErr] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -51,7 +50,7 @@ export function Imports() {
   const confirm = async () => {
     if (!current) return;
     try {
-      setCurrent(await withStepUp(() => endpoints.confirmImport(current.id), ask));
+      setCurrent(await endpoints.confirmImport(current.id));
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Couldn't start the import.");
     }

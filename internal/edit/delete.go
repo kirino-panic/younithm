@@ -49,7 +49,7 @@ func (e *Editor) DeleteEntity(ctx context.Context, actor, kind string, id int64)
 		if kind != KindArtist {
 			name = str(row["title"])
 		}
-		// Logged as bulk: undoing it is as big a change, so it needs step-up.
+		// Logged as bulk: undoing it is as big a change.
 		return &draft{scope: "bulk", entityType: kind, entityID: id,
 			summary: fmt.Sprintf("Delete %s %d (%s) and %d scrobbles", kind, id, name, d.scrobbles), changes: d.cs}, nil
 	})

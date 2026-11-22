@@ -166,15 +166,9 @@ func TestDebugSettings(t *testing.T) {
 		t.Fatalf("negative limit: %d", resp.StatusCode)
 	}
 
-	// Clearing needs step-up and the typed confirmation.
+	// Clearing needs the typed confirmation, not a password.
 	if _, err := e.pools.Write.Exec(`INSERT INTO artist (name, sort_name) VALUES ('A', 'A')`); err != nil {
 		t.Fatal(err)
-	}
-	if resp, body := e.do("POST", "/api/v1/admin/debug/clear-library", map[string]string{"confirm": "DELETE"}); resp.StatusCode != 403 || !strings.Contains(body, "step_up_required") {
-		t.Fatalf("clear without step-up: %d %s", resp.StatusCode, body)
-	}
-	if resp, _ := e.do("POST", "/api/v1/auth/reauth", map[string]string{"password": adminPW}); resp.StatusCode != 200 {
-		t.Fatalf("reauth: %d", resp.StatusCode)
 	}
 	if resp, _ := e.do("POST", "/api/v1/admin/debug/clear-library", map[string]string{"confirm": "nope"}); resp.StatusCode != 400 {
 		t.Fatalf("wrong confirm: %d", resp.StatusCode)

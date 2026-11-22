@@ -1,8 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, Star, X } from "lucide-react";
-import { endpoints, ApiError, withBase, withStepUp, type Credit, type CreditIn, type MergeCandidate } from "../api";
-import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, usePasswordPrompt, useToast } from "../ui";
+import { endpoints, ApiError, withBase, type Credit, type CreditIn, type MergeCandidate } from "../api";
+import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, useToast } from "../ui";
 
 type Kind = "recording" | "release" | "artist";
 const LABELS: Record<Kind, string> = { recording: "track", release: "album", artist: "artist" };
@@ -26,7 +26,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   links: Record<string, string>; raw?: string[]; onClose: () => void; onSaved: () => void;
 }) {
   const toast = useToast();
-  const ask = usePasswordPrompt();
   const navigate = useNavigate();
   const [mergeInto, setMergeInto] = useState<MergeCandidate | null>(null);
   const [merging, setMerging] = useState(false);
@@ -67,14 +66,14 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
     if (!mergeInto) return;
     setBusy(true); setErr("");
     try {
-      const res = await withStepUp(() => endpoints.merge(kind, id, mergeInto.id, !remember), ask);
+      const res = await endpoints.merge(kind, id, mergeInto.id, !remember);
       onClose();
       navigate(ROUTES[kind] + mergeInto.id, { replace: true });
       toast({
         text: `Merged into ${mergeInto.name}`,
         action: {
           label: "Undo",
-          run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
+          run: () => endpoints.undo(res.edit_id)
             .then(() => navigate(ROUTES[kind] + id, { replace: true }))
             .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
         },
@@ -89,14 +88,14 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   // Deletes this entry and every scrobble of it, then leaves its page (it's gone).
   const remove = async () => {
     try {
-      const res = await withStepUp(() => endpoints.deleteEntity(kind, id), ask);
+      const res = await endpoints.deleteEntity(kind, id);
       onClose();
       navigate("/library", { replace: true });
       toast({
         text: `Deleted ${override || name}`,
         action: {
           label: "Undo",
-          run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
+          run: () => endpoints.undo(res.edit_id)
             .then(() => navigate(ROUTES[kind] + id))
             .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
         },
@@ -449,7 +448,6 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
 // instead, and later listens credited that way get them too.
 function SplitDialog({ id, name, onCancel, onDone }: { id: number; name: string; onCancel: () => void; onDone: () => void }) {
   const toast = useToast();
-  const ask = usePasswordPrompt();
   const navigate = useNavigate();
   const [rows, setRows] = useState<CreditRow[]>([]);
   const [adding, setAdding] = useState(true);
@@ -466,7 +464,7 @@ function SplitDialog({ id, name, onCancel, onDone }: { id: number; name: string;
     setBusy(true); setErr("");
     try {
       const body: CreditIn[] = rows.map((a) => ({ ...(a.id ? { artist_id: a.id } : { name: a.name }), join_phrase: a.join }));
-      const res = await withStepUp(() => endpoints.splitArtist(id, body), ask);
+      const res = await endpoints.splitArtist(id, body);
       onDone();
       // This artist is gone: show the first of its parts instead (looked up
       // by name when it was just created).
@@ -477,7 +475,7 @@ function SplitDialog({ id, name, onCancel, onDone }: { id: number; name: string;
         text: `Split ${name}`,
         action: {
           label: "Undo",
-          run: () => withStepUp(() => endpoints.undo(res.edit_id), ask)
+          run: () => endpoints.undo(res.edit_id)
             .then(() => navigate(`/artist/${id}`, { replace: true }))
             .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
         },

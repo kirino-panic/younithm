@@ -323,8 +323,8 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 	nm.MountLanguages(r, auth.RequireSession, enr.NamesNow) // names in the preferred languages
 	r.Route("/api/v1", func(r chi.Router) {
 		ing.MountAPI(r)
-		imp.Mount(r)                                               // admin import jobs
-		backfill.Mount(r, auth.RequireSession, auth.RequireStepUp) // identity backfill
+		imp.Mount(r)                           // admin import jobs
+		backfill.Mount(r, auth.RequireSession) // identity backfill
 		st := stats.New(pools.Read).WithNames(nm)
 		st.Mount(r, stats.Gates{
 			Recent: public("recent"), Top: public("top"), Stats: public("stats"),

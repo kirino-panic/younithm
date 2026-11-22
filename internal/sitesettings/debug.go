@@ -52,7 +52,7 @@ type DebugHooks struct {
 //
 //	GET  /api/v1/admin/debug                {"fake_now_playing":false,"import_limit":0,"counts":{...}}
 //	PUT  /api/v1/admin/debug                {"fake_now_playing"?: bool, "import_limit"?: int}
-//	POST /api/v1/admin/debug/clear-library  {"confirm":"DELETE"}  (needs step-up)
+//	POST /api/v1/admin/debug/clear-library  {"confirm":"DELETE"}
 func MountDebug(r chi.Router, s *Store, h DebugHooks) {
 	if !s.debug {
 		return
@@ -107,7 +107,7 @@ func MountDebug(r chi.Router, s *Store, h DebugHooks) {
 			}
 			state(w, req)
 		})
-		r.With(auth.RequireStepUp).Post("/api/v1/admin/debug/clear-library", func(w http.ResponseWriter, req *http.Request) {
+		r.Post("/api/v1/admin/debug/clear-library", func(w http.ResponseWriter, req *http.Request) {
 			var in struct {
 				Confirm string `json:"confirm"`
 			}

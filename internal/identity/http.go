@@ -12,15 +12,15 @@ import (
 //
 //	GET  /admin/identity/backfill           {preview, run}: latest dry run and latest real run
 //	POST /admin/identity/backfill/preview   start a dry run on a private copy (202)
-//	POST /admin/identity/backfill           start the real run, body {"resume":bool} (202, step-up)
+//	POST /admin/identity/backfill           start the real run, body {"resume":bool} (202)
 //	POST /admin/identity/backfill/cancel    stop the running job; resume continues it
 //	GET  /admin/identity/integrity          rule checks and review counts (see Integrity)
-func (b *Backfill) Mount(r chi.Router, session, stepUp func(http.Handler) http.Handler) {
+func (b *Backfill) Mount(r chi.Router, session func(http.Handler) http.Handler) {
 	r.Route("/admin/identity/backfill", func(r chi.Router) {
 		r.Use(session)
 		r.Get("/", b.status)
 		r.Post("/preview", b.start(true))
-		r.With(stepUp).Post("/", b.start(false))
+		r.Post("/", b.start(false))
 		r.Post("/cancel", b.cancelHTTP)
 	})
 	r.With(session).Get("/admin/identity/integrity", func(w http.ResponseWriter, r *http.Request) {

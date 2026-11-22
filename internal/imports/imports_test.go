@@ -49,7 +49,7 @@ func newEnv(t *testing.T, opt Options) *env {
 	}
 	r := chi.NewRouter()
 	id := func(h http.Handler) http.Handler { return h }
-	m.MountWith(r, id, id)
+	m.MountWith(r, id)
 	return &env{t: t, pools: pools, m: m, h: r, ctx: ctx}
 }
 
@@ -889,7 +889,7 @@ func TestAppleWaitingJobSurvivesARestart(t *testing.T) {
 	e.m = m2
 	r := chi.NewRouter()
 	id := func(h http.Handler) http.Handler { return h }
-	m2.MountWith(r, id, id)
+	m2.MountWith(r, id)
 	e.h = r
 	e.steady(j.ID, StatusAwaitingFiles)
 	if c, _ := e.addFile(j.ID, "daily.csv", daily, ""); c != 200 {

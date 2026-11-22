@@ -79,13 +79,7 @@ func TestImportEndpointsAreAdminOnly(t *testing.T) {
 		t.Fatalf("job never reached preview: %s", status)
 	}
 
-	resp, b := e.do("POST", p+"/"+itoa(job.ID)+"/confirm", nil)
-	if resp.StatusCode != 403 {
-		t.Fatalf("confirm without step-up: %d %s", resp.StatusCode, b)
-	}
-	if resp, b := e.do("POST", "/api/v1/auth/reauth", map[string]string{"password": adminPW}); resp.StatusCode != 200 {
-		t.Fatalf("reauth: %d %s", resp.StatusCode, b)
-	}
+	// Confirming needs only the session, no password.
 	if resp, b := e.do("POST", p+"/"+itoa(job.ID)+"/confirm", nil); resp.StatusCode != 200 {
 		t.Fatalf("confirm: %d %s", resp.StatusCode, b)
 	}

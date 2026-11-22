@@ -84,8 +84,8 @@ func Mount(r chi.Router, d Deps) {
 			//   /debug/api/v1/admin/identity/backfill...  dry run, cancel
 			//   /debug/api/v1/admin/review, /enrichment   candidates, queue
 			r.Route("/v1", func(r chi.Router) {
-				d.Imports.MountWith(r, pass, pass)
-				d.Backfill.Mount(r, pass, pass)
+				d.Imports.MountWith(r, pass)
+				d.Backfill.Mount(r, pass)
 				d.Review.MountAt(r, "/admin", pass)
 			})
 		})

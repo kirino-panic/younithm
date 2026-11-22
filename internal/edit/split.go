@@ -140,7 +140,7 @@ func (e *Editor) Split(ctx context.Context, actor string, id int64, in []CreditI
 				names[i] = fmt.Sprintf("#%d", c.ArtistID)
 			}
 		}
-		// Logged as a merge: undoing it is as big a change, so it needs step-up too.
+		// Logged as a merge: undoing it is as big a change.
 		return &draft{scope: "merge", entityType: KindArtist, entityID: id,
 			summary: fmt.Sprintf("Split artist %d (%s) into %s", id, str(row["name"]), strings.Join(names, ", ")), changes: cs}, nil
 	})

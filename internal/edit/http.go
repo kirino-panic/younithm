@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 	"younithm/internal/providers"
 
 	"github.com/go-chi/chi/v5"
@@ -19,21 +18,21 @@ import (
 )
 
 // Mount registers the admin editing API. Everything needs an admin session
-// (which also enforces CSRF on writes); merge and bulk apply additionally need
-// step-up. Edit history and raw values are admin-only.
+// (which also enforces CSRF on writes). Edit history and raw values are
+// admin-only.
 //
 //	GET    /api/v1/admin/edits?entity_type&entity_id&scope&before_id&limit
 //	GET    /api/v1/admin/edits/{id}                      full before/after
-//	POST   /api/v1/admin/edits/{id}/undo                 step-up for merge/bulk
+//	POST   /api/v1/admin/edits/{id}/undo
 //	GET    /api/v1/admin/scrobbles/{id}                  raw vs effective
 //	PATCH  /api/v1/admin/scrobbles/{id}                  {played_at, recording_id, release_id, link_release}
 //	DELETE /api/v1/admin/scrobbles/{id}
 //	POST   /api/v1/admin/scrobbles/delete                {ids}  one edit, one undo
 //	POST   /api/v1/admin/scrobbles/{id}/move-album       {release_id, link_release}
 //	POST   /api/v1/admin/scrobbles/bulk/preview          {filter, set}
-//	POST   /api/v1/admin/scrobbles/bulk/apply            {filter, set, expected_matched}  (step-up)
+//	POST   /api/v1/admin/scrobbles/bulk/apply            {filter, set, expected_matched}
 //	PATCH  /api/v1/admin/entities/{kind}/{id}            {fields, drop_alias}
-//	POST   /api/v1/admin/entities/{kind}/{id}/merge      {into}                            (step-up)
+//	POST   /api/v1/admin/entities/{kind}/{id}/merge      {into}
 //	GET    /api/v1/admin/entities/{kind}/{id}/merge-candidates?q   suggestions when q is empty
 //	GET    /api/v1/admin/entities/{kind}/candidates?q    the same search, for a scrobble with no track
 //	POST   /api/v1/admin/recordings/{id}/releases        {release_id, disc, position}
@@ -88,13 +87,10 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Get(p+"/search", h.search)
 		r.Get(p+"/entities/{kind}/{id}/merge-candidates", h.mergeCandidates)
 		r.Get(p+"/entities/{kind}/candidates", h.candidates)
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireStepUp)
-			r.Post(p+"/scrobbles/bulk/apply", h.bulkApply)
-			r.Post(p+"/entities/{kind}/{id}/merge", h.merge)
-			r.Post(p+"/artists/{id}/split", h.split)
-			r.Delete(p+"/entities/{kind}/{id}", h.deleteEntity)
-		})
+		r.Post(p+"/scrobbles/bulk/apply", h.bulkApply)
+		r.Post(p+"/entities/{kind}/{id}/merge", h.merge)
+		r.Post(p+"/artists/{id}/split", h.split)
+		r.Delete(p+"/entities/{kind}/{id}", h.deleteEntity)
 	})
 }
 
@@ -189,18 +185,6 @@ func (h *handlers) undo(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return
-	}
-	// Undoing a merge or bulk edit is as sensitive as making one.
-	en, err := Get(r.Context(), h.read, id)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	if en.Scope == "merge" || en.Scope == "bulk" {
-		if p := auth.PrincipalFrom(r.Context()); p == nil || p.Session == nil || !p.Session.SteppedUp(time.Now()) {
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": "step_up_required"})
-			return
-		}
 	}
 	res, err := h.ed.Undo(r.Context(), actor(r), id)
 	h.namesChanged(err)
