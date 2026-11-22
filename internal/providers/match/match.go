@@ -45,11 +45,12 @@ type Listen struct {
 	Album         string
 	DurationMs    int
 	RecordingMBID string
-	// ReleaseMBIDs are the MusicBrainz releases the listen itself named (its
-	// history said which release it was on). A candidate MusicBrainz recording
-	// that is on one of them is corroborated; one that is only on other releases
-	// is not the recording that was played. Empty = unknown.
-	ReleaseMBIDs []string
+	// ReleaseIDs are the albums the listen was on, by provider (MusicBrainz
+	// release ids, Spotify and Apple Music album ids): ones its history named or
+	// a person linked. A candidate on one of them is corroborated; one only on
+	// other albums of that provider is not the recording that was played, and
+	// the album's tracklist is read to find the one that was. Empty = unknown.
+	ReleaseIDs  map[string][]string
 	ArtistMBIDs  []string
 	ISRC         string
 	// ReleaseDate is the release date of the album the listen was on (YYYY,
@@ -206,20 +207,23 @@ func (m *Matcher) matchProvider(ctx context.Context, cfg Config, p providers.Pro
 			}
 		} else {
 			isrcLinks = isrcRung(cfg, l, tracks)
-			if len(isrcLinks) == 1 && isrcLinks[0].Status == StatusAuto {
+			// A lone ISRC hit is the answer, unless it sits on another album than
+			// the one the listen was on (another edition's copy): then the
+			// album's tracklist is read as well, and wins if it holds the song.
+			if len(isrcLinks) == 1 && isrcLinks[0].Status == StatusAuto && idRelation(l, *isrcLinks[0].Track) != relDiffers {
 				return isrcLinks, nil
 			}
 		}
 	}
 
-	// Rung 2b: the release the listen named. Its tracklist is a closed set that
+	// Rung 2b: the album the listen was on. Its tracklist is a closed set that
 	// holds the recording that was played, so the matcher reads the track off it
-	// instead of searching by name. A single scorable track on that release is an
+	// instead of searching by name. A single scorable track on that album is an
 	// id-backed match (see fuzzyRung); several leave candidates.
 	var pool []providers.Track
-	if rl, ok := p.(providers.ReleaseTracksLookup); ok && len(l.ReleaseMBIDs) > 0 && l.Title != "" && l.Artist != "" {
+	if rl, ok := p.(providers.ReleaseTracksLookup); ok && len(l.ReleaseIDs[p.Name()]) > 0 && l.Title != "" && l.Artist != "" {
 		seen := map[string]bool{}
-		for _, id := range l.ReleaseMBIDs {
+		for _, id := range l.ReleaseIDs[p.Name()] {
 			if len(seen) == maxReleaseLookups {
 				break
 			}
@@ -285,6 +289,17 @@ func (m *Matcher) matchProvider(ctx context.Context, cfg Config, p providers.Pro
 		}
 		if !dup {
 			out = append(out, f)
+		}
+	}
+	// The album's own track beats an ISRC hit on another edition.
+	for _, f := range fuzzy {
+		if f.Status == StatusAuto && f.Track != nil && idRelation(l, *f.Track) == relAgrees {
+			for i := range out {
+				if out[i].Method == MethodISRC && out[i].Status == StatusAuto && out[i].ProviderID != f.ProviderID {
+					out[i].Status = StatusCandidate
+				}
+			}
+			break
 		}
 	}
 	// If ISRC and fuzzy agree on one id, it may now deserve auto.
@@ -536,7 +551,7 @@ func fuzzyRung(cfg Config, l Listen, tracks []providers.Track) []Link {
 	// auto whatever the margin to the others, as long as its title and artist
 	// read as the listen's. Two on the release is still ambiguous.
 	byRelease := false
-	if n, at := 0, -1; len(l.ReleaseMBIDs) > 0 {
+	if n, at := 0, -1; len(l.ReleaseIDs) > 0 {
 		for j, s := range sc {
 			if idRelation(l, tracks[s.i]) == relAgrees {
 				n++

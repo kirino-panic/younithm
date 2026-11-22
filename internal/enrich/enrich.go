@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -351,6 +352,18 @@ ON CONFLICT(recording_id) DO UPDATE SET status='queued', attempts=0, next_attemp
 	return err
 }
 
+// RequeueRelease forces every recording on a release to be matched again now,
+// for example after a person linked the album, so its tracklist can place them.
+func (m *Manager) RequeueRelease(ctx context.Context, releaseID int64) error {
+	ns := m.stamp(m.o.Now())
+	_, err := m.db.ExecContext(ctx, `
+INSERT INTO enrichment_job (recording_id, status, next_attempt_at, created_at, updated_at)
+SELECT recording_id, 'queued', ?2, ?2, ?2 FROM recording_release WHERE release_id = ?1 AND true
+ON CONFLICT(recording_id) DO UPDATE SET status='queued', attempts=0, next_attempt_at=?2,
+  last_error=NULL, updated_at=?2 WHERE status <> 'running'`, releaseID, ns)
+	return err
+}
+
 type job struct {
 	id, recordingID int64
 	attempts        int
@@ -435,6 +448,7 @@ func (m *Manager) handle(ctx context.Context, j job) {
 	var firstErr error
 	blocked := false // a held id could not be asked about yet (no credentials)
 	have := map[string]bool{}
+	stale := map[string][]string{} // held ids the album's tracklist contradicts, by provider
 	for _, lk := range rc.links {
 		have[lk.provider] = true
 		p, ok := m.matcher.Providers.Get(lk.provider)
@@ -443,6 +457,19 @@ func (m *Manager) handle(ctx context.Context, j job) {
 			continue
 		}
 		t, err := m.getTrack(ctx, p, lk.id)
+		if err == nil && lk.replaceable() && len(rc.releaseIDs[lk.provider]) > 0 {
+			off, offErr := m.offAlbum(ctx, p, t, rc.releaseIDs[lk.provider])
+			if retryLater(offErr) {
+				return
+			}
+			if off {
+				// Matching chose a recording that is not on the album a person
+				// linked (usually another edition's copy of the song). Leave it
+				// unapplied and let the ladder read the album's tracklist.
+				stale[lk.provider] = append(stale[lk.provider], lk.id)
+				continue
+			}
+		}
 		switch {
 		case retryLater(err):
 			return
@@ -459,6 +486,18 @@ func (m *Manager) handle(ctx context.Context, j job) {
 			if firstErr == nil {
 				firstErr = err
 			}
+		}
+	}
+
+	for p := range stale {
+		have[p] = false
+		for _, lk := range rc.links {
+			if lk.provider == p && !slices.Contains(stale[p], lk.id) {
+				have[p] = true // another id it holds still stands
+			}
+		}
+		if have[p] {
+			delete(stale, p)
 		}
 	}
 
@@ -494,13 +533,23 @@ func (m *Manager) handle(ctx context.Context, j job) {
 		}
 	}
 	if len(reg.All()) > 0 {
-		l := match.Listen{Artist: strings.Join(rc.artists, ", "), Title: rc.title, Album: rc.album, DurationMs: rc.durationMs, ReleaseDate: rc.releaseDate, ReleaseMBIDs: rc.releaseMBIDs}
+		l := match.Listen{Artist: strings.Join(rc.artists, ", "), Title: rc.title, Album: rc.album, DurationMs: rc.durationMs, ReleaseDate: rc.releaseDate, ReleaseIDs: rc.releaseIDs}
 		if len(rc.isrcs) > 0 {
 			l.ISRC = rc.isrcs[0]
 		}
 		res, err = match.New(reg, m.matcher.Config).Match(ctx, l)
 		if retryLater(err) {
 			return
+		}
+		if len(stale) > 0 {
+			// Only a recording on the album may take the contradicted one's place.
+			kept := res.Links[:0]
+			for _, l := range res.Links {
+				if len(stale[l.Provider]) == 0 || (l.Track != nil && onRelease(*l.Track, rc.releaseIDs[l.Provider])) {
+					kept = append(kept, l)
+				}
+			}
+			res.Links = kept
 		}
 		if !rc.fuzzyConsent { // the import asked for no automatic fuzzy matches
 			for i := range res.Links {
@@ -554,7 +603,7 @@ func (m *Manager) handle(ctx context.Context, j job) {
 	if retryLater(err) {
 		return
 	}
-	outcome, err := m.store(ctx, j.recordingID, held, res, albums)
+	outcome, err := m.store(ctx, j.recordingID, held, res, albums, stale)
 	if err != nil {
 		m.fail(ctx, j, err)
 		return
@@ -678,13 +727,23 @@ type recordingCtx struct {
 	artists      []string
 	album        string
 	releaseDate  string   // of our album, when known
-	releaseMBIDs []string // MusicBrainz releases the listen itself named
+	releaseIDs   map[string][]string // album ids by provider: ones the listen named or a person linked
 	fuzzyConsent bool
 	links        []heldLink // non-candidate provider ids other than ISRC
 	isrcs        []string
 }
 
-type heldLink struct{ provider, id, method string }
+type heldLink struct {
+	provider, id, method string
+	firm                 bool // set by a person (confirmed or pinned): never replaced
+}
+
+// replaceable reports whether a held link is one matching chose itself (by
+// ISRC, lookup or name), not one the listen named or a person set, so a
+// stronger answer may replace it.
+func (l heldLink) replaceable() bool {
+	return !l.firm && l.method != match.MethodSubmittedMBID && l.method != "submitted_id"
+}
 
 // heldTrack is a provider's answer for an id the recording holds. credits says
 // the id came from the listen itself (a catalog id the user's own history
@@ -738,23 +797,29 @@ WHERE rr.recording_id=? ORDER BY rr.is_primary DESC, rel.id LIMIT 1`, id).Scan(&
 		return rc, false, err
 	}
 	rc.album = album.String
-	rows, err = m.db.QueryContext(ctx, `SELECT DISTINCT el.provider_id FROM recording_release rr
+	// Albums whose tracklist may place the recording: ones the listen named or
+	// a person linked. Links matching found itself may be another edition.
+	rows, err = m.db.QueryContext(ctx, `SELECT DISTINCT el.provider, el.provider_id FROM recording_release rr
 JOIN external_link el ON el.entity_type='release' AND el.entity_id=rr.release_id
-WHERE rr.recording_id=? AND el.provider='musicbrainz' AND el.match_method='submitted_mbid' AND el.status <> 'candidate'
-ORDER BY el.provider_id`, id)
+WHERE rr.recording_id=? AND el.provider IN ('musicbrainz', 'spotify', 'apple') AND el.status <> 'candidate'
+  AND (el.match_method IN ('submitted_mbid', 'submitted_id') OR el.status='confirmed' OR el.pinned=1)
+ORDER BY el.provider, el.provider_id`, id)
 	if err != nil {
 		return rc, false, err
 	}
 	for rows.Next() {
-		var mb string
-		if err := rows.Scan(&mb); err != nil {
+		var prov, rel string
+		if err := rows.Scan(&prov, &rel); err != nil {
 			rows.Close()
 			return rc, false, err
 		}
-		rc.releaseMBIDs = append(rc.releaseMBIDs, mb)
+		if rc.releaseIDs == nil {
+			rc.releaseIDs = map[string][]string{}
+		}
+		rc.releaseIDs[prov] = append(rc.releaseIDs[prov], rel)
 	}
 	rows.Close()
-	rows, err = m.db.QueryContext(ctx, `SELECT provider, provider_id, match_method FROM external_link
+	rows, err = m.db.QueryContext(ctx, `SELECT provider, provider_id, match_method, status='confirmed' OR pinned=1 FROM external_link
 WHERE entity_type='recording' AND entity_id=? AND status <> 'candidate' ORDER BY id`, id)
 	if err != nil {
 		return rc, false, err
@@ -762,7 +827,7 @@ WHERE entity_type='recording' AND entity_id=? AND status <> 'candidate' ORDER BY
 	defer rows.Close()
 	for rows.Next() {
 		var l heldLink
-		if err := rows.Scan(&l.provider, &l.id, &l.method); err != nil {
+		if err := rows.Scan(&l.provider, &l.id, &l.method, &l.firm); err != nil {
 			return rc, false, err
 		}
 		if l.provider == "isrc" {
@@ -776,7 +841,9 @@ WHERE entity_type='recording' AND entity_id=? AND status <> 'candidate' ORDER BY
 
 // store writes the ladder's links. Rejected candidates are skipped, and
 // candidates are dropped for a provider that already produced an auto link.
-func (m *Manager) store(ctx context.Context, recID int64, held []heldTrack, res match.Result, albums map[string]providers.Album) (string, error) {
+// stale are held links the album's tracklist contradicts: an auto link from
+// the same provider replaces them.
+func (m *Manager) store(ctx context.Context, recID int64, held []heldTrack, res match.Result, albums map[string]providers.Album, stale map[string][]string) (string, error) {
 	autoFor := map[string]bool{}
 	for _, l := range res.Links {
 		if l.Status == match.StatusAuto {
@@ -846,6 +913,17 @@ WHERE entity_type='recording' AND entity_id=? AND provider=? AND provider_id=?`,
 					outcome = OutcomeCandidates
 				}
 				continue
+			}
+		}
+		if l.Status == match.StatusAuto {
+			for _, old := range stale[l.Provider] {
+				if old == l.ProviderID {
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, `DELETE FROM external_link WHERE entity_type='recording' AND entity_id=?
+AND provider=? AND provider_id=? AND status='auto' AND pinned=0`, recID, l.Provider, old); err != nil {
+					return "", err
+				}
 			}
 		}
 		// A candidate an earlier scan left is promoted when this scan finds the
@@ -946,4 +1024,47 @@ func linkResolvedID(ctx context.Context, tx *sql.Tx, recID int64, h heldTrack) e
 VALUES ('recording', ?, ?, ?, ?, 1.0, 'auto')
 ON CONFLICT(entity_type, entity_id, provider, provider_id) DO NOTHING`, recID, h.t.Provider, h.t.ProviderID, h.method)
 	return err
+}
+
+// onRelease reports whether a catalogue track lists one of the releases.
+func onRelease(t providers.Track, releases []string) bool {
+	for _, r := range t.Releases {
+		for _, id := range releases {
+			if strings.EqualFold(r.ProviderID, id) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// offAlbum reports whether the album's tracklist proves t is not on it: t lists
+// none of the releases, and at least one of their tracklists was read without
+// holding it. A recording's own release list can be cut short, so only the
+// tracklist counts as proof; with no tracklist read, nothing is proven.
+func (m *Manager) offAlbum(ctx context.Context, p providers.Provider, t *providers.Track, releases []string) (bool, error) {
+	if onRelease(*t, releases) {
+		return false, nil
+	}
+	rl, ok := p.(providers.ReleaseTracksLookup)
+	if !ok {
+		return false, nil
+	}
+	read := false
+	for _, id := range releases {
+		tracks, err := rl.LookupReleaseTracks(ctx, id)
+		if err != nil {
+			if isRateLimited(err) {
+				return false, err
+			}
+			continue // a dead or unreadable release proves nothing
+		}
+		read = true
+		for _, x := range tracks {
+			if strings.EqualFold(x.ProviderID, t.ProviderID) {
+				return false, nil
+			}
+		}
+	}
+	return read, nil
 }

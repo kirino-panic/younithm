@@ -234,3 +234,50 @@ func TestGetAlbumNotFound(t *testing.T) {
 		t.Fatalf("empty data: %v", err)
 	}
 }
+
+// An album's tracklist comes with the album, following the next page; music
+// videos are left out, and each song carries the album's own date and its
+// disc and track number.
+func TestLookupReleaseTracksFollowsPagesAndSkipsVideos(t *testing.T) {
+	song := func(id, name string, n int) string {
+		return `{"id":"` + id + `","type":"songs","attributes":{"name":"` + name + `","artistName":"Artist","albumName":"Blue",
+			"durationInMillis":200000,"releaseDate":"1999-01-01","discNumber":1,"trackNumber":` + string(rune('0'+n)) + `},
+			"relationships":{"artists":{"data":[{"id":"a1","attributes":{"name":"Artist"}}]}}}`
+	}
+	e := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/catalog/us/albums/2002":
+			if r.URL.Query().Get("include") != "tracks,artists" {
+				t.Errorf("include = %q", r.URL.Query().Get("include"))
+			}
+			w.Write([]byte(`{"data":[{"id":"2002","attributes":{"name":"Blue","artistName":"Artist","releaseDate":"2024-03-01"},
+				"relationships":{"tracks":{"next":"/v1/catalog/us/albums/2002/tracks?offset=2","data":[` +
+				song("s1", "Intro", 1) + `,{"id":"v1","type":"music-videos","attributes":{"name":"Song (Video)"}}]}}}]}`))
+		case "/catalog/us/albums/2002/tracks":
+			if r.URL.Query().Get("offset") != "2" {
+				t.Errorf("offset = %q", r.URL.Query().Get("offset"))
+			}
+			w.Write([]byte(`{"data":[` + song("s2", "Song", 2) + `]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	ts, err := e.c.LookupReleaseTracks(context.Background(), "2002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 2 || ts[1].ProviderID != "s2" || ts[1].Artists[0].ProviderID != "a1" {
+		t.Fatalf("%+v", ts)
+	}
+	r := ts[1].Releases[0]
+	if r.ProviderID != "2002" || r.Date != "2024-03-01" || r.DateIsTrack || r.Position != 2 || r.Artists[0].Name != "Artist" {
+		t.Fatalf("release = %+v", r)
+	}
+	calls := atomic.LoadInt32(&e.calls)
+	if _, err := e.c.LookupReleaseTracks(context.Background(), "2002"); err != nil || atomic.LoadInt32(&e.calls) != calls {
+		t.Fatalf("not cached: %v", err)
+	}
+	if _, err := e.c.LookupReleaseTracks(context.Background(), "999"); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("missing album: %v", err)
+	}
+}

@@ -252,3 +252,46 @@ func TestAcceptLanguageIsEnforcedAndOverridable(t *testing.T) {
 		t.Fatalf("Accept-Language sent = %v, want %v", got, want)
 	}
 }
+
+// An album's tracklist comes from the album request, then one request per
+// further page; each track carries the album with its disc and track number,
+// and the answer is cached.
+func TestLookupReleaseTracksPagesAndCaches(t *testing.T) {
+	item := func(id, name string, disc, n int) string {
+		return `{"id":"` + id + `","name":"` + name + `","duration_ms":200000,"disc_number":` + string(rune('0'+disc)) +
+			`,"track_number":` + string(rune('0'+n)) + `,"artists":[{"id":"art1","name":"Artist"}]}`
+	}
+	c, f := newFake(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/albums/" + idB:
+			w.Write([]byte(`{"id":"` + idB + `","name":"Blue","release_date":"2024-03-01","album_type":"album",
+				"artists":[{"id":"art1","name":"Artist"}],
+				"tracks":{"total":3,"items":[` + item("t1", "Intro", 1, 1) + `,` + item("t2", "Song", 1, 2) + `]}}`))
+		case "/v1/albums/" + idB + "/tracks":
+			if r.URL.Query().Get("offset") != "2" {
+				t.Errorf("offset = %s", r.URL.Query().Get("offset"))
+			}
+			w.Write([]byte(`{"items":[` + item("t3", "Outro", 2, 1) + `]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	ts, err := c.LookupReleaseTracks(context.Background(), idB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 3 || ts[1].ProviderID != "t2" || ts[1].Title != "Song" || ts[1].Artists[0].ProviderID != "art1" {
+		t.Fatalf("%+v", ts)
+	}
+	r := ts[2].Releases[0]
+	if r.ProviderID != idB || r.Title != "Blue" || r.Date != "2024-03-01" || r.Disc != 2 || r.Position != 1 || r.Artists[0].Name != "Artist" {
+		t.Fatalf("release = %+v", r)
+	}
+	calls := atomic.LoadInt32(&f.apiCalls)
+	if _, err := c.LookupReleaseTracks(context.Background(), idB); err != nil || atomic.LoadInt32(&f.apiCalls) != calls {
+		t.Fatalf("not cached: %v", err)
+	}
+	if _, err := c.LookupReleaseTracks(context.Background(), idA); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("missing album: %v", err)
+	}
+}

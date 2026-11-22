@@ -316,7 +316,7 @@ func TestReleaseTheListenNamedPicksTheRecording(t *testing.T) {
 	f := &fake{search: []providers.Track{
 		mbTrack("a", 306000, "r-2004"), mbTrack("b", 304000, "r-1998"), mbTrack("c", 305893, "r-1980", "r-comp"),
 	}}
-	r := mbRun(t, f, Listen{ReleaseMBIDs: []string{"R-1980"}}) // ids compare ignoring case
+	r := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"R-1980"}}}) // ids compare ignoring case
 	c := linkFor(r, "c")
 	if c.Status != StatusAuto || !c.Corroborated || c.Method != MethodFuzzy {
 		t.Fatalf("recording on the named release not auto-linked: %+v", r.Links)
@@ -338,14 +338,14 @@ func TestWithoutAReleaseTheTieStaysACandidateList(t *testing.T) {
 		"named release on neither": {"r-elsewhere"},
 		"named release on both":    {"r-2004", "r-1998"},
 	} {
-		r := mbRun(t, f, Listen{ReleaseMBIDs: ids})
+		r := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: ids}})
 		if _, ok := r.Best(); ok {
 			t.Fatalf("%s: a tie was auto-linked: %+v", name, r.Links)
 		}
 	}
 	// Both candidates list the one release the listen named: still ambiguous.
 	f = &fake{search: []providers.Track{mbTrack("a", 306000, "r-1"), mbTrack("b", 304000, "r-1")}}
-	if _, ok := mbRun(t, f, Listen{ReleaseMBIDs: []string{"r-1"}}).Best(); ok {
+	if _, ok := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-1"}}}).Best(); ok {
 		t.Fatal("two recordings on the named release were auto-linked")
 	}
 }
@@ -356,7 +356,7 @@ func TestReleaseIDDoesNotLinkARecordingWithTheWrongText(t *testing.T) {
 	wrong := mbTrack("w", 306000, "r-1")
 	wrong.Title = "Something Else Entirely"
 	f := &fake{search: []providers.Track{wrong, mbTrack("b", 304000, "r-2")}}
-	if r := mbRun(t, f, Listen{ReleaseMBIDs: []string{"r-1"}}); linkFor(r, "w").Status == StatusAuto {
+	if r := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-1"}}}); linkFor(r, "w").Status == StatusAuto {
 		t.Fatalf("auto-linked on the id alone: %+v", r.Links)
 	}
 }
@@ -368,11 +368,11 @@ func TestReleaseIDOnlyJudgesMusicBrainzCandidates(t *testing.T) {
 	other := mbTrack("x", 306000, "r-1")
 	other.Provider = "spotify"
 	f := &fake{search: []providers.Track{other, mbTrack("y", 304000, "r-2")}}
-	if r := mbRun(t, f, Listen{ReleaseMBIDs: []string{"r-1"}}); linkFor(r, "x").Corroborated {
+	if r := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-1"}}}); linkFor(r, "x").Corroborated {
 		t.Fatalf("another provider's candidate was matched on a MusicBrainz id: %+v", r.Links)
 	}
 	f = &fake{search: []providers.Track{mbTrack("p", 306000), mbTrack("q", 304000, "r-1"), mbTrack("s", 305000, "r-2")}}
-	r := mbRun(t, f, Listen{ReleaseMBIDs: []string{"r-1"}})
+	r := mbRun(t, f, Listen{ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-1"}}})
 	if q := linkFor(r, "q"); q.Status != StatusAuto || !q.Corroborated {
 		t.Fatalf("the one listing the release should win over one with no release list: %+v", r.Links)
 	}
@@ -382,7 +382,7 @@ func TestReleaseIDOnlyJudgesMusicBrainzCandidates(t *testing.T) {
 // release date can.
 func TestReleaseTheListenNamedPicksAmongISRCHits(t *testing.T) {
 	f := &fake{isrc: map[string][]providers.Track{"ISRC1": {mbTrack("a", 306000, "r-1"), mbTrack("b", 306000, "r-2")}}}
-	r := mbRun(t, f, Listen{ISRC: "ISRC1", ReleaseMBIDs: []string{"r-2"}})
+	r := mbRun(t, f, Listen{ISRC: "ISRC1", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-2"}}})
 	if b := linkFor(r, "b"); b.Status != StatusAuto {
 		t.Fatalf("ISRC hit on the named release not auto-linked: %+v", r.Links)
 	}
@@ -398,7 +398,7 @@ func TestReleaseTheListenNamedPicksAmongISRCHits(t *testing.T) {
 // others from being singled out by the release id.
 func TestISRCHitWithNoReleaseListKeepsTheTieOpen(t *testing.T) {
 	f := &fake{isrc: map[string][]providers.Track{"ISRC1": {mbTrack("a", 306000, "r-1"), mbTrack("b", 306000)}}}
-	if _, ok := mbRun(t, f, Listen{ISRC: "ISRC1", ReleaseMBIDs: []string{"r-1"}}).Best(); ok {
+	if _, ok := mbRun(t, f, Listen{ISRC: "ISRC1", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r-1"}}}).Best(); ok {
 		t.Fatal("a hit with an unknown release list was ruled out")
 	}
 }

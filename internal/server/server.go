@@ -289,12 +289,19 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 	afterImport.Store(&sweep)
 	relink := func(kind string, id int64) {
 		nm.Forget()
-		if kind == "recording" { // look the linked track up so its details fill in
-			if err := enr.Requeue(o.bg, id); err != nil {
-				log.Printf("enrich: requeue after link edit: %v", err)
-			}
-			enr.Wake()
+		var err error
+		switch kind {
+		case "recording": // look the linked track up so its details fill in
+			err = enr.Requeue(o.bg, id)
+		case "release": // the album's tracklist may now place its tracks
+			err = enr.RequeueRelease(o.bg, id)
+		default:
+			return
 		}
+		if err != nil {
+			log.Printf("enrich: requeue after link edit: %v", err)
+		}
+		enr.Wake()
 	}
 	onLinkChanged.Store(&relink)
 	go enr.Run(o.bg) // providers without credentials are skipped per call

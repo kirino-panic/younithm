@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -52,8 +51,7 @@ type Client struct {
 	hc  *http.Client
 	lim *providers.Limiter
 
-	relMu    sync.Mutex
-	relCache map[string]relTracksEntry
+	tracklists providers.TracklistCache
 }
 
 var (
@@ -108,8 +106,6 @@ func New(cfg Config) (*Client, error) {
 		ua:  fmt.Sprintf("%s/%s ( %s )", cfg.AppName, cfg.AppVersion, cfg.Contact),
 		hc:  hc,
 		lim: lim,
-
-		relCache: map[string]relTracksEntry{},
 	}, nil
 }
 
@@ -248,20 +244,6 @@ func (c *Client) searchRecordings(ctx context.Context, query string, limit int) 
 	return tracks, nil
 }
 
-// relTracksTTL and relTracksMax bound the small cache of release tracklists: a
-// batch of listens usually comes from a few dozen albums, so each is fetched
-// once, not once per track.
-const (
-	relTracksTTL = 30 * time.Minute
-	relTracksMax = 256
-)
-
-type relTracksEntry struct {
-	tracks []providers.Track // nil with notFound set
-	gone   bool
-	at     time.Time
-}
-
 type mbTracklist struct {
 	ID           string           `json:"id"`
 	Title        string           `json:"title"`
@@ -298,20 +280,14 @@ func (c *Client) LookupReleaseTracks(ctx context.Context, releaseID string) ([]p
 		return nil, providers.ErrNotFound
 	}
 	key := strings.ToLower(releaseID)
-	c.relMu.Lock()
-	e, ok := c.relCache[key]
-	c.relMu.Unlock()
-	if ok && time.Since(e.at) < relTracksTTL {
-		if e.gone {
-			return nil, providers.ErrNotFound
-		}
-		return append([]providers.Track(nil), e.tracks...), nil
+	if ts, err, ok := c.tracklists.Get(key); ok {
+		return ts, err
 	}
 	var r mbTracklist
 	u := c.cfg.BaseURL + "/release/" + key + "?inc=recordings+artist-credits+isrcs+release-groups&fmt=json"
 	if err := c.get(ctx, u, &r); err != nil {
 		if errors.Is(err, providers.ErrNotFound) {
-			c.putRelTracks(key, relTracksEntry{gone: true, at: time.Now()})
+			c.tracklists.Put(key, nil, true)
 		}
 		return nil, err
 	}
@@ -345,20 +321,10 @@ func (c *Client) LookupReleaseTracks(ctx context.Context, releaseID string) ([]p
 			})
 		}
 	}
-	c.putRelTracks(key, relTracksEntry{tracks: tracks, at: time.Now()})
-	return append([]providers.Track(nil), tracks...), nil
+	c.tracklists.Put(key, tracks, false)
+	return tracks, nil
 }
 
-func (c *Client) putRelTracks(key string, e relTracksEntry) {
-	c.relMu.Lock()
-	defer c.relMu.Unlock()
-	if len(c.relCache) >= relTracksMax {
-		for k := range c.relCache { // full: drop everything, it is only a cache
-			delete(c.relCache, k)
-		}
-	}
-	c.relCache[key] = e
-}
 
 const lookupInc = "artists+releases+isrcs+release-groups"
 

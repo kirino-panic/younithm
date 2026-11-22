@@ -12,6 +12,8 @@ import (
 // ladderFake is a MusicBrainz-like provider that also reads release tracklists
 // and offers the loose search. It records every request, in order.
 type ladderFake struct {
+	name       string                       // "" = MusicBrainz
+	isrc       map[string][]providers.Track // ISRC lookup answers
 	releases   map[string][]providers.Track // by release id; absent = not found
 	releaseErr error
 	search     func(providers.TrackQuery) []providers.Track
@@ -20,7 +22,16 @@ type ladderFake struct {
 	log        []string // "release:<id>", "search:<title>|<artist>|<album>", "loose:..."
 }
 
-func (f *ladderFake) Name() string { return providers.MusicBrainz }
+func (f *ladderFake) Name() string {
+	if f.name != "" {
+		return f.name
+	}
+	return providers.MusicBrainz
+}
+func (f *ladderFake) LookupISRC(_ context.Context, isrc string) ([]providers.Track, error) {
+	f.log = append(f.log, "isrc:"+isrc)
+	return f.isrc[isrc], nil
+}
 func (f *ladderFake) GetTrack(context.Context, string) (*providers.Track, error) {
 	return nil, providers.ErrUnsupported
 }
@@ -102,7 +113,7 @@ func TestTheNamedReleaseTracklistLinksTheTrackWithoutSearching(t *testing.T) {
 		onRelease("t3", "Third Song", "Kikuo", "r1"),
 	}}}
 	// Title and artist as the listen wrote them.
-	r, err := ladderRun(t, f, Listen{Title: "Moon Youkai (feat. Hatsune Miku)", Artist: "Kikuo", Album: "Orange", ReleaseMBIDs: []string{"r1"}})
+	r, err := ladderRun(t, f, Listen{Title: "Moon Youkai (feat. Hatsune Miku)", Artist: "Kikuo", Album: "Orange", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +133,7 @@ func TestTwoMatchingTracksOnTheReleaseStayCandidates(t *testing.T) {
 		onRelease("t1", "Hey Nineteen", "Steely Dan", "r1"),
 		onRelease("t2", "Hey Nineteen", "Steely Dan", "r1"),
 	}}}
-	r, _ := ladderRun(t, f, Listen{Title: "Hey Nineteen", Artist: "Steely Dan", ReleaseMBIDs: []string{"r1"}})
+	r, _ := ladderRun(t, f, Listen{Title: "Hey Nineteen", Artist: "Steely Dan", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r1"}}})
 	if _, ok := r.Best(); ok || len(r.Links) != 2 {
 		t.Fatalf("links = %+v", r.Links)
 	}
@@ -145,7 +156,7 @@ func TestATracklistWithoutTheTrackFallsThroughToTheSearch(t *testing.T) {
 			return []providers.Track{onRelease("found", "Kibun", "Fishmans", "r9")}
 		},
 	}
-	r, _ := ladderRun(t, f, Listen{Title: "Kibun", Artist: "Fishmans", Album: "Orange", ReleaseMBIDs: []string{"r1"}})
+	r, _ := ladderRun(t, f, Listen{Title: "Kibun", Artist: "Fishmans", Album: "Orange", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r1"}}})
 	if best, ok := r.Best(); !ok || best.ProviderID != "found" {
 		t.Fatalf("links = %+v", r.Links)
 	}
@@ -159,12 +170,12 @@ func TestADeadReleaseIDFallsThroughAndARateLimitAborts(t *testing.T) {
 	f := &ladderFake{search: func(providers.TrackQuery) []providers.Track {
 		return []providers.Track{onRelease("found", "Kibun", "Fishmans", "r9")}
 	}}
-	r, _ := ladderRun(t, f, Listen{Title: "Kibun", Artist: "Fishmans", ReleaseMBIDs: []string{"gone"}})
+	r, _ := ladderRun(t, f, Listen{Title: "Kibun", Artist: "Fishmans", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"gone"}}})
 	if best, ok := r.Best(); !ok || best.ProviderID != "found" {
 		t.Fatalf("links = %+v", r.Links)
 	}
 	limited := &ladderFake{releaseErr: &providers.RateLimitedError{Provider: providers.MusicBrainz, RetryAfter: 5}}
-	_, err := ladderRun(t, limited, Listen{Title: "Kibun", Artist: "Fishmans", ReleaseMBIDs: []string{"r1"}})
+	_, err := ladderRun(t, limited, Listen{Title: "Kibun", Artist: "Fishmans", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r1"}}})
 	var rl *providers.RateLimitedError
 	if !errors.As(err, &rl) {
 		t.Fatalf("err = %v, want rate limited", err)
@@ -177,7 +188,7 @@ func TestADeadReleaseIDFallsThroughAndARateLimitAborts(t *testing.T) {
 // Each distinct release is read once, and at most maxReleaseLookups of them.
 func TestReleaseLookupsAreDistinctAndCapped(t *testing.T) {
 	f := &ladderFake{}
-	ladderRun(t, f, Listen{Title: "x", Artist: "y", ReleaseMBIDs: []string{"a", "A", "b", "c", "d", "e"}})
+	ladderRun(t, f, Listen{Title: "x", Artist: "y", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"a", "A", "b", "c", "d", "e"}}})
 	var releases []string
 	for _, e := range f.log {
 		if len(e) > 8 && e[:8] == "release:" {
@@ -246,7 +257,7 @@ func TestAPlainListenWithoutAnAlbumRepeatsNoQuery(t *testing.T) {
 // query, and the one without the album.
 func TestAProviderWithoutLooseSearchGetsOnlyThePhraseQueries(t *testing.T) {
 	f := &plainFake{}
-	ladderRun(t, f, Listen{Title: "Kibun (feat. X)", Artist: "Fishmans", Album: "Orange", ReleaseMBIDs: []string{"r1"}})
+	ladderRun(t, f, Listen{Title: "Kibun (feat. X)", Artist: "Fishmans", Album: "Orange", ReleaseIDs: map[string][]string{providers.MusicBrainz: []string{"r1"}}})
 	want := []string{"search:Kibun (feat. X)|Fishmans|Orange", "search:Kibun|Fishmans|"}
 	if !reflect.DeepEqual(f.log, want) {
 		t.Fatalf("requests = %v, want %v", f.log, want)
@@ -334,4 +345,71 @@ func TestSearchTitleDropsOnlyTheCreditAndRemasterTags(t *testing.T) {
 			t.Errorf("SearchTitle(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// spotifyOn is a Spotify track on one album.
+func spotifyOn(id, title, album string) providers.Track {
+	return providers.Track{Provider: providers.Spotify, ProviderID: id, Title: title,
+		Artists:  []providers.Artist{{Name: "Fishmans"}},
+		Releases: []providers.ReleaseRef{{ProviderID: album, Title: "Orange"}}}
+}
+
+// Album ids belong to a catalogue: a Spotify album's tracklist places a
+// Spotify track, by Spotify's own album id.
+func TestASpotifyAlbumTracklistLinksTheTrack(t *testing.T) {
+	f := &ladderFake{name: providers.Spotify, releases: map[string][]providers.Track{"sp-al": {
+		spotifyOn("s1", "Intro", "sp-al"), spotifyOn("s2", "Kibun", "sp-al"),
+	}}}
+	r, err := ladderRun(t, f, Listen{Title: "Kibun (feat. X)", Artist: "Fishmans", ReleaseIDs: map[string][]string{
+		providers.MusicBrainz: {"mb-rel"}, providers.Spotify: {"sp-al"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := r.Best(); !ok || b.ProviderID != "s2" || !b.Corroborated {
+		t.Fatalf("links = %+v", r.Links)
+	}
+	if len(f.log) == 0 || f.log[0] != "release:sp-al" {
+		t.Fatalf("read %v, want only the Spotify album", f.log)
+	}
+}
+
+// A lone ISRC hit on another edition does not settle it: the album's
+// tracklist is read, and its track wins; the ISRC hit stays a candidate.
+// With no copy on the album, the ISRC hit stands.
+func TestTheAlbumsTrackBeatsAnISRCHitOnAnotherEdition(t *testing.T) {
+	f := &ladderFake{name: providers.Spotify,
+		isrc:     map[string][]providers.Track{"ISRC1": {spotifyOn("s-deluxe", "Kibun", "sp-deluxe")}},
+		releases: map[string][]providers.Track{"sp-al": {spotifyOn("s1", "Intro", "sp-al"), spotifyOn("s2", "Kibun", "sp-al")}},
+	}
+	l := Listen{Title: "Kibun", Artist: "Fishmans", ISRC: "ISRC1", ReleaseIDs: map[string][]string{providers.Spotify: {"sp-al"}}}
+	r, _ := ladderRun(t, f, l)
+	var auto []string
+	for _, k := range r.Links {
+		if k.Status == StatusAuto {
+			auto = append(auto, k.ProviderID)
+		}
+	}
+	if len(auto) != 1 || auto[0] != "s2" {
+		t.Fatalf("auto = %v, links = %+v", auto, r.Links)
+	}
+	f.releases = map[string][]providers.Track{"sp-al": {spotifyOn("s1", "Intro", "sp-al")}}
+	if b, ok := mustRun(t, f, l).Best(); !ok || b.ProviderID != "s-deluxe" {
+		t.Fatalf("without a copy on the album the ISRC hit should stand: %+v", b)
+	}
+	// On the album itself, the ISRC hit is the answer with no further request.
+	f.log = nil
+	l.ReleaseIDs = map[string][]string{providers.Spotify: {"sp-deluxe"}}
+	if b, ok := mustRun(t, f, l).Best(); !ok || b.ProviderID != "s-deluxe" || len(f.log) != 1 {
+		t.Fatalf("best %+v, requests %v", b, f.log)
+	}
+}
+
+func mustRun(t *testing.T, p providers.Provider, l Listen) Result {
+	t.Helper()
+	r, err := ladderRun(t, p, l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

@@ -61,6 +61,8 @@ type Client struct {
 	expires time.Time
 	forCred string
 
+	tracklists providers.TracklistCache
+
 	fronts   []storefront // storefronts and their languages (names.go)
 	frontsAt time.Time
 }
@@ -69,6 +71,8 @@ var (
 	_ providers.Provider    = (*Client)(nil)
 	_ providers.ISRCLookup  = (*Client)(nil)
 	_ providers.AlbumLookup = (*Client)(nil)
+
+	_ providers.ReleaseTracksLookup = (*Client)(nil)
 )
 
 func New(cfg Config) (*Client, error) {
@@ -199,6 +203,7 @@ type artwork struct {
 
 type resource struct {
 	ID         string `json:"id"`
+	Type       string `json:"type"`
 	Attributes struct {
 		Name        string   `json:"name"`
 		ArtistName  string   `json:"artistName"`
@@ -215,6 +220,10 @@ type resource struct {
 	Relationships struct {
 		Albums  struct{ Data []resource } `json:"albums"`
 		Artists struct{ Data []resource } `json:"artists"`
+		Tracks  struct {
+			Data []resource `json:"data"`
+			Next string     `json:"next"`
+		} `json:"tracks"`
 	} `json:"relationships"`
 }
 
@@ -360,6 +369,72 @@ func (c *Client) GetAlbum(ctx context.Context, id string) (*providers.Album, err
 	a := out.Data[0]
 	return &providers.Album{ProviderID: a.ID, Title: a.Attributes.Name, Date: a.Attributes.ReleaseDate,
 		UPC: a.Attributes.UPC, TotalTracks: a.Attributes.TrackCount}, nil
+}
+
+// maxAlbumPages caps the requests for one album's tracklist.
+const maxAlbumPages = 5
+
+// LookupReleaseTracks returns an album's tracklist by its Apple Music id, each
+// song carrying the album (with the album's own date) and its disc and track
+// number. Music videos on the album are left out. Answers are cached.
+func (c *Client) LookupReleaseTracks(ctx context.Context, id string) ([]providers.Track, error) {
+	if !digits(id) {
+		return nil, providers.ErrNotFound
+	}
+	if ts, err, ok := c.tracklists.Get(id); ok {
+		return ts, err
+	}
+	var out struct{ Data []resource }
+	if err := c.get(ctx, c.cat("/albums/"+id+"?include=tracks,artists&include[songs]=artists"), &out); err != nil {
+		if errors.Is(err, providers.ErrNotFound) {
+			c.tracklists.Put(id, nil, true)
+		}
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		c.tracklists.Put(id, nil, true)
+		return nil, providers.ErrNotFound
+	}
+	al := out.Data[0]
+	songs := al.Relationships.Tracks.Data
+	next := al.Relationships.Tracks.Next
+	for page := 1; next != "" && page < maxAlbumPages; page++ {
+		var more struct {
+			Data []resource `json:"data"`
+			Next string     `json:"next"`
+		}
+		// next is a path from the API root ("/v1/catalog/…"); BaseURL ends in /v1.
+		path := strings.TrimPrefix(next, "/v1")
+		if !strings.HasPrefix(path, "/catalog/") {
+			break
+		}
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		if err := c.get(ctx, path+sep+"include=artists", &more); err != nil {
+			return nil, err
+		}
+		songs = append(songs, more.Data...)
+		next = more.Next
+	}
+	ref := providers.ReleaseRef{ProviderID: al.ID, Title: al.Attributes.Name, Date: al.Attributes.ReleaseDate}
+	if n := al.Attributes.ArtistName; n != "" { // Apple names the album artist, with no id
+		ref.Artists = []providers.Artist{{Name: n}}
+	}
+	tracks := make([]providers.Track, 0, len(songs))
+	for _, r := range songs {
+		if r.Type != "" && r.Type != "songs" {
+			continue
+		}
+		t := r.toTrack()
+		here := ref
+		here.Disc, here.Position = r.Attributes.DiscNumber, r.Attributes.TrackNumber
+		t.Releases = []providers.ReleaseRef{here}
+		tracks = append(tracks, t)
+	}
+	c.tracklists.Put(id, tracks, false)
+	return tracks, nil
 }
 
 // GetArtwork takes an Apple Music album id.

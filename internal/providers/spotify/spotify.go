@@ -56,12 +56,16 @@ type Client struct {
 	token   string
 	expires time.Time
 	forID   string // client id + secret the cached token was issued for
+
+	tracklists providers.TracklistCache
 }
 
 var (
 	_ providers.Provider    = (*Client)(nil)
 	_ providers.ISRCLookup  = (*Client)(nil)
 	_ providers.AlbumLookup = (*Client)(nil)
+
+	_ providers.ReleaseTracksLookup = (*Client)(nil)
 
 	_ providers.LocalizedNames = (*Client)(nil)
 )
@@ -298,6 +302,62 @@ func (c *Client) GetAlbum(ctx context.Context, id string) (*providers.Album, err
 		return nil, err
 	}
 	return &providers.Album{ProviderID: a.ID, Title: a.Name, Date: a.ReleaseDate, UPC: a.ExternalIDs.UPC, TotalTracks: a.TotalTracks}, nil
+}
+
+// albumTracksPage is how many tracks one request of an album's tracklist
+// returns (Spotify's maximum), and maxAlbumPages caps the requests per album.
+const (
+	albumTracksPage = 50
+	maxAlbumPages   = 10
+)
+
+// LookupReleaseTracks returns an album's tracklist by its Spotify id, each
+// track carrying the album with its disc and track number. The album request
+// holds the first page; longer albums take one more request per page. Answers
+// are cached. Spotify's album tracks carry no ISRC.
+func (c *Client) LookupReleaseTracks(ctx context.Context, id string) ([]providers.Track, error) {
+	if !validID(id) {
+		return nil, providers.ErrNotFound
+	}
+	if ts, err, ok := c.tracklists.Get(id); ok {
+		return ts, err
+	}
+	var a struct {
+		album
+		Tracks struct {
+			Items []track `json:"items"`
+			Total int     `json:"total"`
+		} `json:"tracks"`
+	}
+	if err := c.get(ctx, "/albums/"+id, &a); err != nil {
+		if errors.Is(err, providers.ErrNotFound) {
+			c.tracklists.Put(id, nil, true)
+		}
+		return nil, err
+	}
+	items := a.Tracks.Items
+	for page := 1; len(items) < a.Tracks.Total && page < maxAlbumPages; page++ {
+		var more struct {
+			Items []track `json:"items"`
+		}
+		if err := c.get(ctx, fmt.Sprintf("/albums/%s/tracks?offset=%d&limit=%d", id, len(items), albumTracksPage), &more); err != nil {
+			return nil, err
+		}
+		if len(more.Items) == 0 {
+			break
+		}
+		items = append(items, more.Items...)
+	}
+	out := make([]providers.Track, 0, len(items))
+	for _, it := range items {
+		if it.ID == "" {
+			continue // a track no longer available
+		}
+		it.Album = a.album
+		out = append(out, it.toTrack())
+	}
+	c.tracklists.Put(id, out, false)
+	return out, nil
 }
 
 // GetArtwork takes a Spotify album id.

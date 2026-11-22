@@ -54,16 +54,16 @@ func releaseRelation(date string, t providers.Track) relation {
 	return relUnknown
 }
 
-// idRelation compares the MusicBrainz releases the listen named with the
-// releases a candidate MusicBrainz recording is on. Release ids are
-// provider-specific, so only MusicBrainz candidates are judged, and one that
-// lists no releases says nothing.
+// idRelation compares the albums the listen was on with the albums a
+// candidate is on. Album ids are provider-specific, so a candidate is judged
+// only by its own provider's ids, and one that lists no albums says nothing.
 func idRelation(l Listen, t providers.Track) relation {
-	if len(l.ReleaseMBIDs) == 0 || t.Provider != providers.MusicBrainz || len(t.Releases) == 0 {
+	ids := l.ReleaseIDs[t.Provider]
+	if len(ids) == 0 || len(t.Releases) == 0 {
 		return relUnknown
 	}
 	for _, r := range t.Releases {
-		for _, id := range l.ReleaseMBIDs {
+		for _, id := range ids {
 			if r.ProviderID != "" && strings.EqualFold(r.ProviderID, id) {
 				return relAgrees
 			}

@@ -30,7 +30,7 @@ MusicBrainz answers `503` when the rate is exceeded. The client honours `Retry-A
 Every recording is queued, most-played first. For each one:
 
 1. **Held ids.** Each provider is asked about the ids the recording holds. This yields ISRCs, credits, albums, album artists, dates and release groups.
-2. **Missing providers.** For providers it holds no id for, the ladder runs: ISRC lookup, then the tracklist of the release the listen named, then a search that loosens step by step.
+2. **Missing providers.** For providers it holds no id for, the ladder runs: ISRC lookup, then the tracklist of the album in that catalogue, then a search that loosens step by step.
 3. **Write back.** Links, aliases and gap fills are applied by the rules in [identity.md](identity.md).
 
 A recording with nothing left to try is marked `no_match`. One waiting on a provider that isn't connected stays queued until it is.
@@ -38,7 +38,7 @@ A recording with nothing left to try is marked `no_match`. One waiting on a prov
 ### The ladder
 
 - **ISRC.** Several MusicBrainz recordings can share one ISRC. When exactly one is on a release from the listen's album date, it wins.
-- **Release tracklist.** When the listen named a MusicBrainz release, that release's tracklist is read (one request, cached 30 minutes) and a track that reads like the listen is linked as an id-backed match.
+- **Album tracklist.** When the listen named an album, or a person linked it, in MusicBrainz, Spotify or Apple Music, that catalogue's tracklist for it is read (one request per page, cached 30 minutes) and a track that reads like the listen is linked as an id-backed match. Each catalogue uses only its own album ids. Album links matching found itself are not used, since they may be another edition. A lone ISRC hit on another album of the same catalogue no longer settles it: the album's tracklist is read too, and its track wins. Linking an album by hand queues its tracks again. A link matching chose itself (by ISRC, lookup or name) that the tracklist proves is not on that album is replaced by the album's own track; links a person set or the listen named are kept, and an unreadable tracklist proves nothing.
 - **Search.** Run only while nothing worth a candidate has been found: title, artist and album as exact phrases; then without the album and without feature or remaster tags; then, on MusicBrainz, looser word searches (artist + album, title + album, title + artist). Every result is pooled and scored the same way, so a looser query finds more but never links on less.
 - **Corroboration.** Duration within 3 s and the album's release date confirm a match. Dates compare at the coarser precision (`2025` agrees with `2025-11-14`).
 - **MusicBrainz track ids.** Some exports send a track id where a recording id belongs. When a held id isn't found as a recording, a track-id lookup resolves it and the real recording id is linked beside it.
