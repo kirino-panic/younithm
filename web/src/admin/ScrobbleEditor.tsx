@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { X } from "lucide-react";
 import { ApiError, endpoints, type MergeCandidate, type Scrobble, type ScrobbleEditBody } from "../api";
-import { Autocomplete, Badge, Sheet, useData, useToast } from "../ui";
+import { Autocomplete, Badge, Sheet, Switch, useData, useToast } from "../ui";
 import { PickChip, PickDialog } from "./EditPanel";
 
 type Artist = { id?: number; name: string };
@@ -19,19 +19,21 @@ export function ScrobbleEditor(props: { s: Scrobble; onClose: () => void; onSave
   const rec = useData(() => (s.recording_id ? endpoints.recording(String(s.recording_id)) : Promise.resolve(null)), [s.recording_id]);
   if (rec.loading) return null;
   const start = rec.data
-    ? { title: rec.data.title, artists: rec.data.artists.map((a) => ({ id: a.id, name: a.name })) }
-    : { title: s.title, artists: s.artist ? [{ name: s.artist }] : [] };
+    ? { title: rec.data.title, artists: rec.data.artists.map((a) => ({ id: a.id, name: a.name })), noAlbum: rec.data.no_album }
+    : { title: s.title, artists: s.artist ? [{ name: s.artist }] : [], noAlbum: false };
   return <Form {...props} start={start} />;
 }
 
 // Changes what one scrobble counts for (track, artists, album) and when it was
 // played. Only this scrobble changes, and what was originally submitted is kept.
-function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: string; artists: Artist[] }; onClose: () => void; onSaved: () => void }) {
+function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: string; artists: Artist[]; noAlbum: boolean }; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const startTime = toLocalInput(s.played_at);
   const [title, setTitle] = useState(start.title);
   const [artists, setArtists] = useState<Artist[]>(start.artists);
   const [album, setAlbum] = useState<Album>({ kind: "keep" });
+  // "No album" is the track's: on no album, and never put on one.
+  const [none, setNone] = useState(start.noAlbum);
   const [time, setTime] = useState(startTime);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -46,20 +48,28 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
   const timeValid = !Number.isNaN(new Date(time).getTime());
   const timeChanged = timeValid && time !== startTime;
   const ready = title.trim() !== "" && artists.length > 0 && timeValid;
-  const changed = trackChanged || timeChanged || album.kind !== "keep";
+  // It applies to this scrobble's track, so not while the scrobble moves to another.
+  const canNone = !!s.recording_id && !trackChanged;
+  const noneChanged = canNone && none !== start.noAlbum;
+  const changed = trackChanged || timeChanged || noneChanged || (album.kind !== "keep" && !(canNone && none));
 
   const save = async () => {
     const body: ScrobbleEditBody = {};
     if (timeChanged) body.played_at = new Date(time).toISOString();
     if (trackChanged) body.new_recording = { title: title.trim(), artists: artists.map((a) => (a.id ? { artist_id: a.id } : { name: a.name })) };
-    if (album.kind === "none") body.release_id = null;
-    if (album.kind === "existing") { body.release_id = album.id; body.link_release = true; }
-    if (album.kind === "new") body.new_release = album.title.trim();
+    if (!(canNone && none)) {
+      if (album.kind === "none") body.release_id = null;
+      if (album.kind === "existing") { body.release_id = album.id; body.link_release = true; }
+      if (album.kind === "new") body.new_release = album.title.trim();
+    }
     setBusy(true); setErr("");
     try {
-      const r = await endpoints.editScrobble(s.id, body);
+      const ids: number[] = [];
+      if (Object.keys(body).length) ids.push((await endpoints.editScrobble(s.id, body)).edit_id);
+      if (noneChanged) ids.push((await endpoints.setNoAlbum(s.recording_id!, none)).edit_id);
       onSaved(); onClose();
-      toast({ text: "Scrobble updated", action: { label: "Undo", run: () => endpoints.undo(r.edit_id).then(onSaved).catch(() => toast({ text: "Couldn't undo." })) } });
+      const undo = async () => { for (const id of [...ids].reverse()) await endpoints.undo(id); };
+      toast({ text: "Scrobble updated", action: { label: "Undo", run: () => undo().then(onSaved).catch(() => toast({ text: "Couldn't undo." })) } });
     } catch (e) {
       setErr(e instanceof ApiError && e.message ? e.message : "Couldn't save.");
       setBusy(false);
@@ -110,6 +120,7 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
       <section>
         <div className="section-label">Album</div>
         <div className="vlist" style={{ gap: 6 }}>
+          {!(canNone && none) && <>
           <div className="edit-row">
             <span className="grow truncate">
               {album.kind === "none" || (album.kind === "keep" && !s.album) ? <span className="faint">No album</span> : albumName}
@@ -121,6 +132,13 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
           <Autocomplete label="Change album" placeholder="Search for an album" search={searchAlbums} allowNew newLabel={(q) => `Create album “${q}”`}
             onPick={(v) => setAlbum(v.id ? { kind: "existing", id: v.id, name: v.name } : { kind: "new", title: v.name })} />
           {trackChanged && album.kind === "keep" && s.album && <p className="faint" style={{ fontSize: 12 }}>The album is kept only if the track is on it.</p>}
+          </>}
+          {canNone && (
+            <div className="edit-row">
+              <span className="grow" style={{ fontSize: 13 }}>This track isn't on an album</span>
+              <Switch checked={none} onChange={setNone} label="This track isn't on an album" />
+            </div>
+          )}
         </div>
       </section>
 

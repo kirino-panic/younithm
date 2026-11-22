@@ -128,6 +128,7 @@ export interface RecordingPage {
   id: number; title: string; display_name?: string | null; image?: string; duration_ms: number | null; artists: Credit[]; aliases: string[]; links: Record<string, string>;
   plays: number; first: string | null; last: string | null; chart: Chart;
   releases: { id: number; title: string; date: string | null; type: string | null; primary: boolean; plays: number; image?: string }[];
+  no_album: boolean;
 }
 export interface TopItem { name: string; artist?: string; id?: number; plays: number; image?: string }
 export interface Stats {
@@ -278,6 +279,7 @@ export const endpoints = {
   addRelease: (rec: number, body: { release_id?: number; title?: string }) => api.post(`/api/v1/admin/recordings/${rec}/releases`, body),
   removeRelease: (rec: number, rel: number) => api.del(`/api/v1/admin/recordings/${rec}/releases/${rel}`),
   setPrimaryRelease: (rec: number, rel: number) => api.put(`/api/v1/admin/recordings/${rec}/primary-release`, { release_id: rel }),
+  setNoAlbum: (rec: number, on: boolean) => api.put<EditResult>(`/api/v1/admin/recordings/${rec}/no-album`, { no_album: on }),
   setImage: (kind: string, id: number, file: File) => {
     const fd = new FormData();
     fd.append("file", file);

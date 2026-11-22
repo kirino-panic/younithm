@@ -561,6 +561,15 @@ func (r *Resolver) resolveRelease(ctx context.Context, q DB, in Input, recID int
 	if title == "" && len(ids) == 0 && in.HintReleaseID == 0 {
 		return 0, nil
 	}
+	if recID != 0 { // a track marked by hand as on no album gets none, and no album is made for it
+		var noAlbum bool
+		if err := q.QueryRowContext(ctx, `SELECT no_album FROM recording WHERE id=?`, recID).Scan(&noAlbum); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		if noAlbum {
+			return 0, nil
+		}
+	}
 	var relAids []int64
 	for _, c := range in.AlbumArtists {
 		id, err := r.resolveArtist(ctx, q, c, "")

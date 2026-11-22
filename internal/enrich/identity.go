@@ -653,6 +653,16 @@ func applyReleases(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Tr
 			release_type=COALESCE(release_type, NULLIF(?, '')) WHERE id=?`, date, rr.Type, target); err != nil {
 			return err
 		}
+		if rr.Position > 0 { // the track's place on this album, when we have none yet
+			disc := rr.Disc
+			if disc < 1 {
+				disc = 1
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE recording_release SET disc=?, position=?
+				WHERE recording_id=? AND release_id=? AND position IS NULL`, disc, rr.Position, recID, target); err != nil {
+				return err
+			}
+		}
 		if rr.GroupID != "" {
 			if _, err := tx.ExecContext(ctx, `UPDATE release SET release_group_mbid=? WHERE id=? AND release_group_mbid IS NULL`, rr.GroupID, target); err != nil {
 				return err

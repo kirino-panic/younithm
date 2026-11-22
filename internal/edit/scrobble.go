@@ -381,12 +381,24 @@ func (p *planner) link(rec, rel int64, disc int64, pos *int64) ([]Change, error)
 		p.markPrimary(rec)
 	}
 	p.linked[[2]int64{rec, rel}] = true
+	var cs []Change
+	// Putting a track on an album by hand lifts its "no album" mark.
+	if !p.linked[[2]int64{rec, -2}] {
+		p.linked[[2]int64{rec, -2}] = true
+		flag, err := queryRows(p.ctx, p.tx, `SELECT no_album FROM recording WHERE id=? AND no_album=1`, rec)
+		if err != nil {
+			return nil, err
+		}
+		if len(flag) > 0 {
+			cs = append(cs, Change{Table: "recording", Key: Row{"id": rec}, Before: Row{"no_album": int64(1)}, After: Row{"no_album": int64(0)}})
+		}
+	}
 	var position any
 	if pos != nil {
 		position = *pos
 	}
-	return []Change{{Table: "recording_release", Key: Row{"recording_id": rec, "release_id": rel},
-		After: Row{"recording_id": rec, "release_id": rel, "disc": disc, "position": position, "is_primary": prim}}}, nil
+	return append(cs, Change{Table: "recording_release", Key: Row{"recording_id": rec, "release_id": rel},
+		After: Row{"recording_id": rec, "release_id": rel, "disc": disc, "position": position, "is_primary": prim}}), nil
 }
 
 func (p *planner) hasPlannedPrimary(rec int64) bool { return p.linked[[2]int64{rec, -1}] }

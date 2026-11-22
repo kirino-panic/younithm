@@ -21,8 +21,8 @@ const MAX_IMAGE = 8 << 20;
 
 // Edits a track, album or artist: name, image, artists, albums and catalogue
 // links. Nothing is sent until Save; each part is its own logged, undoable edit.
-export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, links, raw = [], onClose, onSaved }: {
-  kind: Kind; id: number; name: string; override?: string | null; image?: string; imageCustom?: boolean; credits?: Credit[]; releases?: { id: number; title: string; primary: boolean }[];
+export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, noAlbum = false, links, raw = [], onClose, onSaved }: {
+  kind: Kind; id: number; name: string; override?: string | null; image?: string; imageCustom?: boolean; credits?: Credit[]; releases?: { id: number; title: string; primary: boolean }[]; noAlbum?: boolean;
   links: Record<string, string>; raw?: string[]; onClose: () => void; onSaved: () => void;
 }) {
   const toast = useToast();
@@ -42,6 +42,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const startCredits = (credits || []).map((c) => ({ id: c.id, name: c.name, join: c.join_phrase || "", credited: c.credited_name || "" }));
   const [artists, setArtists] = useState<CreditRow[]>(startCredits);
   const [albums, setAlbums] = useState<AlbumRow[]>((releases || []).map((r) => ({ id: r.id, title: r.title, primary: r.primary })));
+  const [none, setNone] = useState(noAlbum); // "No album": on no album, and never put on one
   const [linkEdits, setLinkEdits] = useState<Record<string, string | null>>({}); // provider -> new URL ("" while typing), or null to remove
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -133,7 +134,11 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         await endpoints.setCredits(kind, id, body);
         done.push("artists");
       }
-      if (kind === "recording" && releases) {
+      if (kind === "recording" && none !== noAlbum) {
+        await endpoints.setNoAlbum(id, none);
+        done.push("albums");
+      }
+      if (kind === "recording" && releases && !none) {
         const before = new Map(releases.map((r) => [r.id, r]));
         for (const a of albums) {
           if (a.id && a.removed && before.has(a.id)) await endpoints.removeRelease(id, a.id);
@@ -280,7 +285,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         <section>
           <div className="section-label">Albums</div>
           <div className="vlist" style={{ gap: 4 }}>
-            {albums.map((a, i) => (
+            {!none && albums.map((a, i) => (
               <div key={`${a.id ?? "new"}-${a.title}`} className={`edit-row${a.removed ? " removed" : ""}`}>
                 <span className="grow truncate">{a.title}{!a.id && <> <Badge>New</Badge></>}</span>
                 {a.primary && !a.removed ? <Badge tone="accent">Primary</Badge> : !a.removed && a.id && (
@@ -293,7 +298,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                       onClick={() => setAlbums((x) => (a.id ? x.map((r, j) => (j === i ? { ...r, removed: true } : r)) : x.filter((_, j) => j !== i)))}><X size={15} /></button>}
               </div>
             ))}
-            {adding === "album" ? (
+            {none ? null : adding === "album" ? (
               <Autocomplete autoFocus label="Add to an album" placeholder="Album title" search={searchAlbums} allowNew
                 newLabel={(q) => `Create album “${q}”`}
                 onPick={(v) => {
@@ -304,6 +309,10 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             ) : (
               <button className="btn edit-add" onClick={() => setAdding("album")}><Plus size={15} /> Add to album</button>
             )}
+            <div className="edit-row">
+              <span className="grow" style={{ fontSize: 13 }}>This track isn't on an album</span>
+              <Switch checked={none} onChange={setNone} label="This track isn't on an album" />
+            </div>
           </div>
         </section>
       )}

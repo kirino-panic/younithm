@@ -38,6 +38,10 @@ func fillReleaseGaps(ctx context.Context, tx *sql.Tx, recID int64, srcs []albumS
 	if edited, err := handEdited(ctx, tx, recID); err != nil || edited {
 		return err
 	}
+	var noAlbum bool // marked by hand as on no album
+	if err := tx.QueryRowContext(ctx, `SELECT no_album FROM recording WHERE id=?`, recID).Scan(&noAlbum); err != nil || noAlbum {
+		return err
+	}
 	var onRelease int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM recording_release WHERE recording_id=?`, recID).Scan(&onRelease); err != nil {
 		return err

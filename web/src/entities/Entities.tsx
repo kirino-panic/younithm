@@ -313,7 +313,6 @@ export function AlbumPage() {
   const [editing, setEditing] = useState(false);
   return (
     <Gate q={q}>{(al) => {
-      const played = al.tracks.filter((t) => t.plays > 0).length;
       const discs = [...new Set(al.tracks.map((t) => t.disc))];
       const albumArtists = al.artists.map((a, i) => (a.credited_name || a.name) + (i < al.artists.length - 1 ? a.join_phrase || ", " : "")).join("");
       return (
@@ -329,10 +328,10 @@ export function AlbumPage() {
           <div className="stack">
             <div className="grid-2">
               <div className="stack">
-                <PlayStats plays={al.plays} note={al.plays_any > al.plays ? `${fmtNum(al.plays_any)} anywhere` : undefined} first={al.first} last={al.last} />
+                <PlayStats plays={al.plays} first={al.first} last={al.last} />
                 <PlaysChart chart={al.chart} />
               </div>
-              <Tile title="Tracklist" end={al.tracks.length > 0 && <span className="muted num">{played} of {al.tracks.length} played</span>}>
+              <Tile title="Tracklist">
                 {!al.tracks.length ? <div className="empty">No tracklist yet.</div> : discs.map((d) => (
                   <div key={d}>
                     {discs.length > 1 && <div className="section-label disc-label">Disc {d}</div>}
@@ -465,7 +464,7 @@ export function TrackPage() {
           )}
         </div>
         {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} image={t.image} credits={t.artists} links={t.links} raw={t.aliases}
-          releases={t.releases.map((r) => ({ id: r.id, title: r.title, primary: r.primary }))}
+          releases={t.releases.map((r) => ({ id: r.id, title: r.title, primary: r.primary }))} noAlbum={t.no_album}
           onClose={() => setEditing(false)} onSaved={() => { q.reload(); history.reload(); }} />}
       </div>
     )}</Gate>

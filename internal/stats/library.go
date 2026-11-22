@@ -491,7 +491,8 @@ func (h *Handler) recording(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var title string
 	var dur *int64
-	if err := h.read.QueryRowContext(ctx, `SELECT title, duration_ms FROM recording WHERE id = ?`, id).Scan(&title, &dur); err != nil {
+	var noAlbum bool
+	if err := h.read.QueryRowContext(ctx, `SELECT title, duration_ms, no_album FROM recording WHERE id = ?`, id).Scan(&title, &dur, &noAlbum); err != nil {
 		fail(w, "recording", err)
 		return
 	}
@@ -563,7 +564,7 @@ WHERE rr.recording_id = ? ORDER BY rr.is_primary DESC, plays DESC, rel.release_d
 	writeJSON(w, 200, map[string]any{
 		"names": variants,
 		"id":    id, "title": title, "display_name": h.override(ctx, "recording", id), "image": h.recordingImage(ctx, id), "duration_ms": dur, "artists": artists, "aliases": al, "links": links,
-		"plays": sp.Plays, "first": sp.First, "last": sp.Last, "releases": rels, "chart": c,
+		"plays": sp.Plays, "first": sp.First, "last": sp.Last, "releases": rels, "chart": c, "no_album": noAlbum,
 	})
 }
 

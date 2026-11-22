@@ -38,6 +38,7 @@ import (
 //	POST   /api/v1/admin/recordings/{id}/releases        {release_id, disc, position}
 //	DELETE /api/v1/admin/recordings/{id}/releases/{rid}
 //	PUT    /api/v1/admin/recordings/{id}/primary-release {release_id}
+//	PUT    /api/v1/admin/recordings/{id}/no-album        {no_album}
 //	POST   /api/v1/admin/entities/{kind}/{id}/image      multipart "file"   (artist, release)
 //	DELETE /api/v1/admin/entities/{kind}/{id}/image      back to the fetched image
 //
@@ -78,6 +79,7 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Patch(p+"/entities/{kind}/{id}", h.editEntity)
 		r.Post(p+"/recordings/{id}/releases", h.addRelease)
 		r.Delete(p+"/recordings/{id}/releases/{rid}", h.removeRelease)
+		r.Put(p+"/recordings/{id}/no-album", h.setNoAlbum)
 		r.Put(p+"/recordings/{id}/primary-release", h.setPrimary)
 		r.Put(p+"/entities/{kind}/{id}/artists", h.setCredits)
 		r.Put(p+"/entities/{kind}/{id}/links", h.setLink)
@@ -382,6 +384,21 @@ func (h *handlers) removeRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.ed.RemoveFromRelease(r.Context(), actor(r), id, rid)
+	done(w, res, err)
+}
+
+func (h *handlers) setNoAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		NoAlbum bool `json:"no_album"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.SetNoAlbum(r.Context(), actor(r), id, in.NoAlbum)
 	done(w, res, err)
 }
 

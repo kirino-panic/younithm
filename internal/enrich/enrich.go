@@ -128,6 +128,11 @@ func (m *Manager) Run(ctx context.Context) {
 			m.namesDue.Store(false)
 			m.lastNames = m.o.Now()
 			m.autoMerge(ctx) // flags from before a rule existed, or whose proof arrived later
+			if filled, err := m.fillTrackPositions(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("enrich: track numbers: %v", err)
+			} else if filled > 0 {
+				log.Printf("enrich: filled %d track numbers", filled)
+			}
 			if err := m.NamePass(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("enrich: names pass: %v", err)
 			}

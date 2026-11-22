@@ -43,7 +43,7 @@ var tables = map[string]tableSpec{
 		"recording_id", "release_id", "raw_artist", "raw_title", "raw_album", "raw_payload", "created_at",
 		"orig_played_at", "edited_at"}},
 	"artist":           {[]string{"id"}, []string{"id", "name", "sort_name", "created_at", "verified", "unsplit", "display_name", "image_override"}},
-	"recording":        {[]string{"id"}, []string{"id", "title", "duration_ms", "work_id", "created_at", "fuzzy_consent", "display_name"}},
+	"recording":        {[]string{"id"}, []string{"id", "title", "duration_ms", "work_id", "created_at", "fuzzy_consent", "display_name", "no_album"}},
 	"release":          {[]string{"id"}, []string{"id", "title", "release_date", "release_type", "artwork_path", "created_at", "release_group_mbid", "display_name", "image_override"}},
 	"recording_artist": {[]string{"recording_id", "artist_id", "role"}, []string{"recording_id", "artist_id", "role", "position", "join_phrase", "credited_name"}},
 	"release_artist":   {[]string{"release_id", "artist_id"}, []string{"release_id", "artist_id", "position", "join_phrase", "credited_name"}},

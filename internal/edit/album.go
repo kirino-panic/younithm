@@ -102,3 +102,44 @@ func (e *Editor) SetPrimaryRelease(ctx context.Context, actor string, rec, rel i
 			summary: fmt.Sprintf("Set release %d as primary for recording %d", rel, rec), changes: cs}, nil
 	})
 }
+
+// SetNoAlbum marks a track as on no album, or clears the mark. Marking it takes
+// it off every album and clears the album of its scrobbles; while marked,
+// nothing puts it on an album again (identity.resolveRelease and the catalogue
+// gap-fill check the mark). Clearing it only lifts the mark: later listens and
+// lookups may put it on an album again.
+func (e *Editor) SetNoAlbum(ctx context.Context, actor string, rec int64, on bool) (*Result, error) {
+	return e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
+		row, err := e.entityExists(ctx, tx, KindRecording, rec)
+		if err != nil {
+			return nil, err
+		}
+		want := int64(0)
+		if on {
+			want = 1
+		}
+		if row["no_album"] == want {
+			return nil, ErrNoChange
+		}
+		cs := []Change{{Table: "recording", Key: Row{"id": rec}, Before: Row{"no_album": row["no_album"]}, After: Row{"no_album": want}}}
+		summary := fmt.Sprintf("Allow albums for recording %d", rec)
+		if on {
+			summary = fmt.Sprintf("Mark recording %d as on no album", rec)
+			scr, err := queryRows(ctx, tx, `SELECT id, release_id FROM scrobble WHERE recording_id=? AND release_id IS NOT NULL`, rec)
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range scr {
+				cs = append(cs, Change{Table: "scrobble", Key: Row{"id": s["id"]}, Before: Row{"release_id": s["release_id"]}, After: Row{"release_id": nil}})
+			}
+			rels, err := queryRows(ctx, tx, `SELECT `+cols("recording_release")+` FROM recording_release WHERE recording_id=?`, rec)
+			if err != nil {
+				return nil, err
+			}
+			for _, r := range rels {
+				cs = append(cs, Change{Table: "recording_release", Key: pickKey(tables["recording_release"], r), Before: r})
+			}
+		}
+		return &draft{scope: "album", entityType: KindRecording, entityID: rec, summary: summary, changes: cs}, nil
+	})
+}
