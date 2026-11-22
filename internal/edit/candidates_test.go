@@ -204,3 +204,44 @@ func TestSetCreditsCreditedNameAndUndo(t *testing.T) {
 		t.Fatalf("after undo = %q", got)
 	}
 }
+
+func TestMergeSearchPutsSameArtistFirst(t *testing.T) {
+	e := newEnv(t)
+	band := e.artist("Band")
+	other := e.artist("Other")
+	song := e.recording("Song", band)
+	exact := e.recording("Song", other) // exact title, other artist, more plays
+	mine := e.recording("Song (Live)", band)
+	e.scrobble("2026-01-01T00:00:00Z", "x", "song", "", exact, nil)
+
+	hits, err := edit.MergeSearch(ctx, e.db, "recording", song, "song", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].ID != mine || hits[1].ID != exact {
+		t.Fatalf("hits: %+v", hits)
+	}
+}
+
+func TestSearchFindsDisplayNames(t *testing.T) {
+	e := newEnv(t)
+	a := e.artist("Kyary")
+	rec := e.recording("PonPonPon", a)
+	e.exec(`UPDATE artist SET display_name = 'きゃりーぱみゅぱみゅ' WHERE id = ?`, a)
+	e.exec(`UPDATE recording SET display_name = 'Pon Pon Pon' WHERE id = ?`, rec)
+
+	as, err := edit.Search(ctx, e.db, "artist", "きゃりー", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(as) != 1 || as[0].ID != a || as[0].Name != "きゃりーぱみゅぱみゅ" {
+		t.Fatalf("artists: %+v", as)
+	}
+	rs, err := edit.Search(ctx, e.db, "recording", "pon pon", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || rs[0].ID != rec || rs[0].Name != "Pon Pon Pon" {
+		t.Fatalf("recordings: %+v", rs)
+	}
+}

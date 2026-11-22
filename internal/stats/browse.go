@@ -174,6 +174,9 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	if ent[1] != "" {
 		inNames += ` OR EXISTS (SELECT 1 FROM ` + ent[1] + ` AND (` + nameMatches("artist", "ra.artist_id") + `))`
 	}
+	if kind == "tracks" {
+		inNames += ` OR EXISTS (SELECT 1 FROM release d WHERE d.id = t.album_id AND d.display_name LIKE ?1 ESCAPE '\')`
+	}
 	where := `WHERE (?1 = '' OR t.name LIKE ?1 ESCAPE '\' OR COALESCE(t.artist, '') LIKE ?1 ESCAPE '\'
   OR COALESCE(t.album, '') LIKE ?1 ESCAPE '\' OR ` + inNames + `)`
 	q := `SELECT t.id, t.name, t.artist, t.album_id, t.album, t.n, t.last, t.art, ` + shownName(ent[0]) + ` AS shown

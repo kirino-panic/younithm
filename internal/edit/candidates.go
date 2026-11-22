@@ -98,8 +98,8 @@ func loose(s string) string {
 
 // MergeSearch finds entities of a kind, other than id, whose stored name,
 // display name, catalogue name or a spelling it was scrobbled as contains q,
-// ignoring the punctuation in looseChars. Exact and prefix matches come first,
-// then the most played.
+// ignoring the punctuation in looseChars. Tracks and albums sharing an artist
+// with id come first, then exact and prefix matches, then the most played.
 func MergeSearch(ctx context.Context, db Querier, kind string, id int64, q string, limit int) ([]Candidate, error) {
 	base, ok := candidateSQL[kind]
 	if !ok {
@@ -120,11 +120,22 @@ func MergeSearch(ctx context.Context, db Querier, kind string, id int64, q strin
 	match := func(expr string) string {
 		return `(` + expr + ` LIKE ?1 ESCAPE '\' OR ` + looseSQL(expr) + ` LIKE ?6 ESCAPE '\')`
 	}
+	// Tracks and albums sharing an artist with id come first: a merge is
+	// nearly always between two entries of the same artist.
+	sameArtist := ""
+	switch kind {
+	case KindRecording:
+		sameArtist = `EXISTS (SELECT 1 FROM recording_artist a1 JOIN recording_artist a2 ON a2.artist_id = a1.artist_id
+  WHERE a1.recording_id = ?4 AND a2.recording_id = x.id) DESC, `
+	case KindRelease:
+		sameArtist = `EXISTS (SELECT 1 FROM release_artist a1 JOIN release_artist a2 ON a2.artist_id = a1.artist_id
+  WHERE a1.release_id = ?4 AND a2.release_id = x.id) DESC, `
+	}
 	query := strings.Replace(base, "\nFROM ", ", '' AS reason\nFROM ", 1) + `
 WHERE x.id <> ?4 AND (` + match("lower("+col+")") + ` OR ` + match("lower(COALESCE(x.display_name, ''))") + `
   OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND ` + match("lower(n.name)") + `)
   OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + kind + `' AND al.entity_id = x.id AND ` + match("lower(replace(al.raw_string, char(31), ' '))") + `))
-ORDER BY lower(` + col + `) = ?2 DESC, lower(COALESCE(x.display_name, '')) = ?2 DESC, lower(` + col + `) LIKE ?3 ESCAPE '\' DESC, 4 DESC
+ORDER BY ` + sameArtist + `lower(` + col + `) = ?2 DESC, lower(COALESCE(x.display_name, '')) = ?2 DESC, lower(` + col + `) LIKE ?3 ESCAPE '\' DESC, 4 DESC
 LIMIT ?5`
 	prefix := esc.Replace(lq) + "%"
 	rows, err := db.QueryContext(ctx, query, like, lq, prefix, id, limit, looseLike)

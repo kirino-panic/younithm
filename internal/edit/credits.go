@@ -141,8 +141,9 @@ type SearchHit struct {
 	Sub  string `json:"sub,omitempty"`
 }
 
-// Search suggests artists or releases whose name (or a name they were
-// submitted under) contains q, best matches first.
+// Search suggests artists, releases or recordings whose stored name, display
+// name set by hand, or a name they were submitted under contains q, best
+// matches first. Hits show the display name when one is set.
 func Search(ctx context.Context, db Querier, kind, q string, limit int) ([]SearchHit, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -153,26 +154,33 @@ func Search(ctx context.Context, db Querier, kind, q string, limit int) ([]Searc
 	var query string
 	switch kind {
 	case KindArtist:
-		query = `SELECT a.id, a.name,
+		query = `SELECT a.id, COALESCE(NULLIF(a.display_name, ''), a.name),
   (SELECT COUNT(*) FROM recording_artist ra WHERE ra.artist_id=a.id) || ' tracks'
 FROM artist a
-WHERE lower(a.name) LIKE ?1 ESCAPE '\' OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='artist' AND al.entity_id=a.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
-ORDER BY lower(a.name) = lower(?3) DESC, lower(a.name) LIKE ?2 DESC,
+WHERE lower(a.name) LIKE ?1 ESCAPE '\' OR lower(COALESCE(a.display_name, '')) LIKE ?1 ESCAPE '\'
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='artist' AND al.entity_id=a.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
+ORDER BY lower(a.name) = lower(?3) OR lower(COALESCE(a.display_name, '')) = lower(?3) DESC,
+  lower(a.name) LIKE ?2 OR lower(COALESCE(a.display_name, '')) LIKE ?2 DESC,
   (SELECT COUNT(*) FROM recording_artist ra WHERE ra.artist_id=a.id) DESC, a.name LIMIT ?4`
 	case KindRelease:
-		query = `SELECT r.id, r.title,
+		query = `SELECT r.id, COALESCE(NULLIF(r.display_name, ''), r.title),
   trim(COALESCE(` + names.LineSQL(names.Release, "r.id") + `, '') || COALESCE(' · ' || substr(r.release_date,1,4), ''), ' ·')
 FROM release r
-WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='release' AND al.entity_id=r.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
-ORDER BY lower(r.title) = lower(?3) DESC, lower(r.title) LIKE ?2 DESC, r.title LIMIT ?4`
+WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR lower(COALESCE(r.display_name, '')) LIKE ?1 ESCAPE '\'
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='release' AND al.entity_id=r.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
+ORDER BY lower(r.title) = lower(?3) OR lower(COALESCE(r.display_name, '')) = lower(?3) DESC,
+  lower(r.title) LIKE ?2 OR lower(COALESCE(r.display_name, '')) LIKE ?2 DESC, r.title LIMIT ?4`
 	case KindRecording:
-		query = `SELECT r.id, r.title,
-  trim(COALESCE(` + names.LineSQL(names.Recording, "r.id") + `, '') || COALESCE(' · ' || (SELECT rel.title FROM recording_release rr JOIN release rel ON rel.id=rr.release_id
+		query = `SELECT r.id, COALESCE(NULLIF(r.display_name, ''), r.title),
+  trim(COALESCE(` + names.LineSQL(names.Recording, "r.id") + `, '') || COALESCE(' · ' || (SELECT COALESCE(NULLIF(rel.display_name, ''), rel.title) FROM recording_release rr JOIN release rel ON rel.id=rr.release_id
      WHERE rr.recording_id=r.id ORDER BY rr.is_primary DESC, rel.id LIMIT 1), ''), ' ·')
 FROM recording r
-WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='recording' AND al.entity_id=r.id AND lower(replace(al.raw_string, char(31), ' ')) LIKE ?1 ESCAPE '\')
-  OR EXISTS (SELECT 1 FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id WHERE ra.recording_id=r.id AND lower(a.name || ' ' || r.title) LIKE ?1 ESCAPE '\')
-ORDER BY lower(r.title) = lower(?3) DESC, lower(r.title) LIKE ?2 DESC,
+WHERE lower(r.title) LIKE ?1 ESCAPE '\' OR lower(COALESCE(r.display_name, '')) LIKE ?1 ESCAPE '\'
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='recording' AND al.entity_id=r.id AND lower(replace(al.raw_string, char(31), ' ')) LIKE ?1 ESCAPE '\')
+  OR EXISTS (SELECT 1 FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id WHERE ra.recording_id=r.id
+    AND (lower(a.name || ' ' || r.title) LIKE ?1 ESCAPE '\' OR lower(COALESCE(NULLIF(a.display_name, ''), a.name) || ' ' || COALESCE(NULLIF(r.display_name, ''), r.title)) LIKE ?1 ESCAPE '\'))
+ORDER BY lower(r.title) = lower(?3) OR lower(COALESCE(r.display_name, '')) = lower(?3) DESC,
+  lower(r.title) LIKE ?2 OR lower(COALESCE(r.display_name, '')) LIKE ?2 DESC,
   (SELECT COUNT(*) FROM scrobble s WHERE s.recording_id=r.id) DESC, r.title LIMIT ?4`
 	default:
 		return nil, invalid("bad_kind", "kind must be artist, recording or release")

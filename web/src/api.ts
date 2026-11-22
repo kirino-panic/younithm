@@ -105,12 +105,14 @@ export interface Listen {
 export interface ChartPoint { label: string; plays: number }
 export interface Chart { month: ChartPoint[]; year: ChartPoint[]; all: ChartPoint[] }
 export interface Credit { id: number; name: string; join_phrase?: string; credited_name?: string }
+// artist: whom the album is credited to (appears on only).
+export interface ArtistAlbum { id: number; title: string; artist?: string; date: string | null; type: string | null; plays: number; image?: string }
 export interface ArtistPage {
   id: number; name: string; display_name?: string | null; image?: string; image_custom?: boolean; aliases: string[]; plays: number; rank: number; first: string | null; last: string | null;
   links: Record<string, string>; chart: Chart;
   top_tracks: { id: number; title: string; artist: string; plays: number; image?: string }[];
-  albums: { id: number; title: string; date: string | null; type: string | null; plays: number; image?: string }[];
-  appears_on: { id: number; title: string; artist: string; plays: number; image?: string }[];
+  albums: ArtistAlbum[];
+  appears_on: ArtistAlbum[];
 }
 export interface ReleasePage {
   id: number; title: string; display_name?: string | null; image?: string; image_custom?: boolean; date: string | null; type: string | null; artists: Credit[]; links: Record<string, string>;

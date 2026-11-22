@@ -95,7 +95,7 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
 
       <section>
         <div className="section-label">Artist</div>
-        <div style={{ display: "grid", gap: 6 }}>
+        <div className="vlist" style={{ gap: 6 }}>
           {artists.map((a, i) => (
             <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
               <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
@@ -109,7 +109,7 @@ function Form({ s, start, onClose, onSaved }: { s: Scrobble; start: { title: str
 
       <section>
         <div className="section-label">Album</div>
-        <div style={{ display: "grid", gap: 6 }}>
+        <div className="vlist" style={{ gap: 6 }}>
           <div className="edit-row">
             <span className="grow truncate">
               {album.kind === "none" || (album.kind === "keep" && !s.album) ? <span className="faint">No album</span> : albumName}

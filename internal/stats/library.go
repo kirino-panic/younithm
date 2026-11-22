@@ -223,12 +223,39 @@ type artistTrack struct {
 }
 
 type artistRelease struct {
-	ID    int64   `json:"id"`
-	Title string  `json:"title"`
-	Date  *string `json:"date"`
-	Type  *string `json:"type"`
-	Plays int64   `json:"plays"`
-	Image string  `json:"image,omitempty"`
+	ID     int64   `json:"id"`
+	Title  string  `json:"title"`
+	Artist string  `json:"artist,omitempty"` // appears on only: whom the album is credited to
+	Date   *string `json:"date"`
+	Type   *string `json:"type"`
+	Plays  int64   `json:"plays"`
+	Image  string  `json:"image,omitempty"`
+}
+
+// artistReleases runs q (id, title, date, type, credit line, plays, image
+// path) with the artist id as ?1.
+func (h *Handler) artistReleases(ctx context.Context, q string, id int64) ([]artistRelease, error) {
+	rows, err := h.read.QueryContext(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []artistRelease{}
+	for rows.Next() {
+		var a artistRelease
+		var artist, path *string
+		if err := rows.Scan(&a.ID, &a.Title, &a.Date, &a.Type, &artist, &a.Plays, &path); err != nil {
+			return nil, err
+		}
+		if artist != nil {
+			a.Artist = *artist
+		}
+		if path != nil {
+			a.Image = artwork.URL(artwork.KindRelease, a.ID, *path)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 func (h *Handler) artist(w http.ResponseWriter, r *http.Request) {
@@ -271,43 +298,31 @@ GROUP BY rec.id ORDER BY plays DESC, rec.title LIMIT 10`, id)
 		fail(w, "artist tracks", err)
 		return
 	}
-	// Tracks where someone else leads the credit.
-	appears, err := h.artistTracks(ctx, `
-SELECT rec.id, rec.title, `+creditLine+`, COUNT(s.id) AS plays
-FROM recording rec JOIN recording_artist me ON me.recording_id = rec.id AND me.artist_id = ?1
-LEFT JOIN scrobble s ON s.recording_id = rec.id AND s.user_id = 1
-WHERE NOT EXISTS (SELECT 1 FROM release_artist rla JOIN recording_release rr ON rr.release_id = rla.release_id
-    WHERE rr.recording_id = rec.id AND rla.artist_id = ?1)
-  AND (SELECT ra.artist_id FROM recording_artist ra WHERE ra.recording_id = rec.id ORDER BY ra.position, ra.artist_id LIMIT 1) <> ?1
-GROUP BY rec.id ORDER BY plays DESC, rec.title LIMIT 10`, id)
-	if err != nil {
-		fail(w, "artist appears on", err)
-		return
-	}
-	rows, err := h.read.QueryContext(ctx, `
-SELECT rel.id, rel.title, rel.release_date, rel.release_type,
+	albums, err := h.artistReleases(ctx, `
+SELECT rel.id, rel.title, rel.release_date, rel.release_type, NULL,
   (SELECT COUNT(*) FROM scrobble s WHERE s.release_id = rel.id AND s.user_id = 1) AS plays, `+artwork.ReleaseImage("rel")+`
-FROM release rel JOIN release_artist me ON me.release_id = rel.id AND me.artist_id = ?
+FROM release rel JOIN release_artist me ON me.release_id = rel.id AND me.artist_id = ?1
 ORDER BY plays DESC, rel.release_date DESC, rel.title LIMIT 50`, id)
 	if err != nil {
 		fail(w, "artist releases", err)
 		return
 	}
-	albums := []artistRelease{}
-	for rows.Next() {
-		var a artistRelease
-		var path *string
-		if err := rows.Scan(&a.ID, &a.Title, &a.Date, &a.Type, &a.Plays, &path); err != nil {
-			rows.Close()
-			fail(w, "artist releases", err)
-			return
-		}
-		if path != nil {
-			a.Image = artwork.URL(artwork.KindRelease, a.ID, *path)
-		}
-		albums = append(albums, a)
+	// Albums credited to someone else that hold a track crediting the artist:
+	// features, compilations, a single filed under another spelling. Plays are
+	// the artist's tracks on that album.
+	appears, err := h.artistReleases(ctx, `
+SELECT rel.id, rel.title, rel.release_date, rel.release_type, `+names.LineSQL(names.Release, "rel.id")+`,
+  (SELECT COUNT(*) FROM scrobble s WHERE s.release_id = rel.id AND s.user_id = 1
+     AND EXISTS (SELECT 1 FROM recording_artist ra WHERE ra.recording_id = s.recording_id AND ra.artist_id = ?1)) AS plays, `+artwork.ReleaseImage("rel")+`
+FROM release rel
+WHERE NOT EXISTS (SELECT 1 FROM release_artist me WHERE me.release_id = rel.id AND me.artist_id = ?1)
+  AND EXISTS (SELECT 1 FROM recording_release rr JOIN recording_artist ra ON ra.recording_id = rr.recording_id
+    WHERE rr.release_id = rel.id AND ra.artist_id = ?1)
+ORDER BY plays DESC, rel.release_date DESC, rel.title LIMIT 50`, id)
+	if err != nil {
+		fail(w, "artist appears on", err)
+		return
 	}
-	rows.Close()
 	c, err := h.buildChart(ctx, mine, id)
 	if err != nil {
 		fail(w, "artist chart", err)
@@ -323,22 +338,25 @@ ORDER BY plays DESC, rel.release_date DESC, rel.title LIMIT 50`, id)
 		fail(w, "artist aliases", err)
 		return
 	}
-	for _, ts := range [][]artistTrack{tracks, appears} {
-		for i := range ts {
-			ts[i].Image = h.recordingImage(ctx, ts[i].ID)
-		}
+	for i := range tracks {
+		tracks[i].Image = h.recordingImage(ctx, tracks[i].ID)
 	}
 	stored := name
 	if h.preferring(ctx) {
 		name = h.disp(ctx, names.Artist, id, name)
-		for _, ts := range [][]artistTrack{tracks, appears} {
-			for i := range ts {
-				ts[i].Title = h.disp(ctx, names.Recording, ts[i].ID, ts[i].Title)
-				ts[i].Artist = h.line(ctx, names.Recording, ts[i].ID, ts[i].Artist)
+		for i := range tracks {
+			tracks[i].Title = h.disp(ctx, names.Recording, tracks[i].ID, tracks[i].Title)
+			tracks[i].Artist = h.line(ctx, names.Recording, tracks[i].ID, tracks[i].Artist)
+		}
+		for _, rs := range [][]artistRelease{albums, appears} {
+			for i := range rs {
+				rs[i].Title = h.disp(ctx, names.Release, rs[i].ID, rs[i].Title)
 			}
 		}
-		for i := range albums {
-			albums[i].Title = h.disp(ctx, names.Release, albums[i].ID, albums[i].Title)
+		for i := range appears {
+			if appears[i].Artist != "" {
+				appears[i].Artist = h.line(ctx, names.Release, appears[i].ID, appears[i].Artist)
+			}
 		}
 	}
 	al = h.alsoKnownAs(ctx, names.Artist, id, stored, name, al)

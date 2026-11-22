@@ -611,6 +611,9 @@ a.metric:hover { background: var(--fill-2, var(--fill)); }
 }
 .ac-item { display: grid; gap: 1px; text-align: left; padding: 6px 8px; border-radius: 6px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
 .ac-item[aria-selected="true"] { background: var(--fill-2); }
+/* A vertical list whose single column never grows past its container, so a
+   long name truncates instead of pushing the row's buttons out of view. */
+.vlist { display: grid; grid-template-columns: minmax(0, 1fr); }
 .edit-row { display: flex; gap: 8px; align-items: center; min-height: 36px; }
 .edit-row > .grow { flex: 1; min-width: 0; }
 .edit-row.removed > .grow { text-decoration: line-through; color: var(--label-3); }

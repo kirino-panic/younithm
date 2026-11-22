@@ -43,7 +43,7 @@ func TestArtistPage(t *testing.T) {
 		Links     map[string]string `json:"links"`
 		TopTracks []artistTrack     `json:"top_tracks"`
 		Albums    []artistRelease   `json:"albums"`
-		AppearsOn []artistTrack     `json:"appears_on"`
+		AppearsOn []artistRelease   `json:"appears_on"`
 		Chart     chart             `json:"chart"`
 	}
 	if c := get(t, h, "/artists/1", &a); c != 200 {
@@ -61,7 +61,7 @@ func TestArtistPage(t *testing.T) {
 	if len(a.TopTracks) != 2 || a.TopTracks[0].Title != "Song One" || a.TopTracks[0].Plays != 2 {
 		t.Fatalf("top tracks %+v", a.TopTracks)
 	}
-	if len(a.AppearsOn) != 1 || a.AppearsOn[0].Title != "Feature" {
+	if len(a.AppearsOn) != 0 { // the feature is on no album
 		t.Fatalf("appears on %+v", a.AppearsOn)
 	}
 	if len(a.Chart.Month) != 30 || len(a.Chart.Year) != 12 || len(a.Chart.All) != 1 || a.Chart.Month[29].Plays != 1 {
@@ -162,5 +162,32 @@ func TestImagesInResponses(t *testing.T) {
 	get(t, r, "/recent", &rc)
 	if len(rc.Items) == 0 || rc.Items[0].Image != a.Albums[0].Image {
 		t.Fatalf("recent: %+v", rc.Items)
+	}
+}
+
+// Albums are the ones credited to the artist; albums credited to someone else
+// that hold a track crediting the artist, led or featured, are "appears on".
+func TestArtistPageAppearsOnAlbums(t *testing.T) {
+	h, d := librarySetupDB(t)
+	exec(t, d, `INSERT INTO artist(id,name) VALUES (3,'Other Spelling')`)
+	exec(t, d, `INSERT INTO release(id,title) VALUES (2,'Single'),(3,'Their Album')`)
+	exec(t, d, `INSERT INTO release_artist(release_id,artist_id) VALUES (2,3),(3,2)`)
+	exec(t, d, `INSERT INTO recording(id,title) VALUES (3,'Lead Single')`)
+	exec(t, d, `INSERT INTO recording_artist(recording_id,artist_id,position) VALUES (3,1,0)`)
+	exec(t, d, `INSERT INTO recording_release(recording_id,release_id,disc,position,is_primary) VALUES (3,2,1,1,1),(2,3,1,1,1)`)
+	exec(t, d, `UPDATE scrobble SET release_id = 3 WHERE recording_id = 2`)
+	var a struct {
+		Albums    []artistRelease `json:"albums"`
+		AppearsOn []artistRelease `json:"appears_on"`
+	}
+	if c := get(t, h, "/artists/1", &a); c != 200 {
+		t.Fatalf("status %d", c)
+	}
+	if len(a.Albums) != 1 || a.Albums[0].ID != 1 {
+		t.Fatalf("albums %+v", a.Albums)
+	}
+	if len(a.AppearsOn) != 2 || a.AppearsOn[0].ID != 3 || a.AppearsOn[0].Plays != 1 || a.AppearsOn[0].Artist != "Guest" ||
+		a.AppearsOn[1].ID != 2 || a.AppearsOn[1].Artist != "Other Spelling" {
+		t.Fatalf("appears on %+v", a.AppearsOn)
 	}
 }

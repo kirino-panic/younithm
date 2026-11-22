@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronDown, Pencil, Trash2 } from "lucide-react";
-import { ApiError, endpoints, type Chart as ChartData, type ChartPoint, type Credit, type LibrarySort, type RecordingPage, type Scrobble } from "../api";
+import { ApiError, endpoints, type ArtistAlbum, type Chart as ChartData, type ChartPoint, type Credit, type LibrarySort, type RecordingPage, type Scrobble } from "../api";
 import { useSession } from "../session";
 import { fmtDate, fmtDay, fmtDuration, fmtNum } from "../format";
 import { Cover, Segmented, useData, useEscape, useToast } from "../ui";
@@ -256,32 +256,8 @@ export function ArtistPage() {
               </Rows>
             </Tile>
           </div>
-          {a.albums.length > 0 && (
-            <Tile title="Albums">
-              <div className="cover-grid">
-                {a.albums.map((al) => (
-                  <Link key={al.id} to={`/album/${al.id}`} className="cover-card">
-                    <Cover name={al.title} src={al.image} size="100%" />
-                    <span className="list-title truncate">{al.title}</span>
-                    <span className="list-sub num">{[year(al.date), `${fmtNum(al.plays)} plays`].filter(Boolean).join(" · ")}</span>
-                  </Link>
-                ))}
-              </div>
-            </Tile>
-          )}
-          {a.appears_on.length > 0 && (
-            <Tile title="Appears on">
-              <Rows empty="">
-                {a.appears_on.map((t) => (
-                  <Link key={t.id} to={`/track/${t.id}`} className="list-row">
-                    <Cover name={t.title} src={t.image} size={36} />
-                    <span className="list-main"><span className="list-title truncate">{t.title}</span><span className="list-sub truncate">{t.artist}</span></span>
-                    <span className="list-end num">{fmtNum(t.plays)}</span>
-                  </Link>
-                ))}
-              </Rows>
-            </Tile>
-          )}
+          {a.albums.length > 0 && <AlbumGrid title="Albums" albums={a.albums} />}
+          {a.appears_on.length > 0 && <AlbumGrid title="Appears on" albums={a.appears_on} />}
           <AllTracks artist={a.id} />
         </div>
         {editing && <EditPanel kind="artist" id={a.id} name={a.name} override={a.display_name} image={a.image} imageCustom={a.image_custom} links={a.links} raw={a.aliases} onClose={() => setEditing(false)} onSaved={q.reload} />}
@@ -534,5 +510,23 @@ function ListeningHistory({ items, track, onChanged }: { items: HistoryRow[]; tr
     {editing && <ScrobbleEditor s={editing} onClose={() => setEditing(null)} onSaved={onChanged} />}
     {removing && <DeleteDialog count={1} onClose={() => setRemoving(null)} remove={() => deleteNow(removing)} />}
     </>
+  );
+}
+
+// A tile of album covers; an album credited to someone else names them.
+function AlbumGrid({ title, albums }: { title: string; albums: ArtistAlbum[] }) {
+  return (
+    <Tile title={title}>
+      <div className="cover-grid">
+        {albums.map((al) => (
+          <Link key={al.id} to={`/album/${al.id}`} className="cover-card">
+            <Cover name={al.title} src={al.image} size="100%" />
+            <span className="list-title truncate">{al.title}</span>
+            {al.artist && <span className="list-sub truncate">{al.artist}</span>}
+            <span className="list-sub num">{[year(al.date), `${fmtNum(al.plays)} plays`].filter(Boolean).join(" · ")}</span>
+          </Link>
+        ))}
+      </div>
+    </Tile>
   );
 }

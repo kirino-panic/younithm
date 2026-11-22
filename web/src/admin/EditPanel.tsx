@@ -224,7 +224,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       {kind !== "artist" && credits && (
         <section>
           <div className="section-label">Artists</div>
-          <div style={{ display: "grid", gap: 4 }}>
+          <div className="vlist" style={{ gap: 4 }}>
             {artists.map((a, i) => (
               <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
                 <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
@@ -264,7 +264,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             <ChevronRight size={16} style={{ transform: creditedOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
           </button>
           {creditedOpen && (
-            <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
+            <div className="vlist" style={{ gap: 4, marginTop: 8 }}>
               {artists.map((a, i) => (
                 <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
                   <span className="grow truncate">{a.name}</span>
@@ -280,7 +280,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       {kind === "recording" && releases && (
         <section>
           <div className="section-label">Albums</div>
-          <div style={{ display: "grid", gap: 4 }}>
+          <div className="vlist" style={{ gap: 4 }}>
             {albums.map((a, i) => (
               <div key={`${a.id ?? "new"}-${a.title}`} className={`edit-row${a.removed ? " removed" : ""}`}>
                 <span className="grow truncate">{a.title}{!a.id && <> <Badge>New</Badge></>}</span>
@@ -311,13 +311,13 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 
       <section>
         <div className="section-label">Links</div>
-        <div style={{ display: "grid", gap: 4 }}>
+        <div className="vlist" style={{ gap: 4 }}>
           {PROVIDERS.map(([p, label]) => {
             const cur = links[p];
             const edit = linkEdits[p];
             const removed = cur && edit !== undefined;
             return (
-              <div key={p} style={{ display: "grid", gap: 6 }}>
+              <div key={p} className="vlist" style={{ gap: 6 }}>
                 <div className={`edit-row${removed ? " removed" : ""}`}>
                   <span className="grow">{label}</span>
                   {cur && !removed && (
@@ -345,7 +345,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             <span className="section-label" style={{ margin: 0 }}>Also known as</span>
             <ChevronRight size={16} style={{ transform: akaOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
           </button>
-          {akaOpen && <div className="muted" style={{ fontSize: 13, display: "grid", gap: 4, marginTop: 8 }}>{aka.map((r) => <span key={r}>{r}</span>)}</div>}
+          {akaOpen && <div className="muted vlist" style={{ fontSize: 13, gap: 4, marginTop: 8, overflowWrap: "anywhere" }}>{aka.map((r) => <span key={r}>{r}</span>)}</div>}
         </section>
       )}
       {err && <p className="error-text">{err}</p>}
@@ -404,7 +404,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
   };
   return (
     <Modal wide onClose={onCancel}>
-      <div style={{ display: "grid", gap: 4 }}>
+      <div className="vlist" style={{ gap: 4 }}>
         <h3 style={{ fontSize: 17 }}>{title}</h3>
         {intro && <p className="muted" style={{ fontSize: 13 }}>{intro}</p>}
       </div>
@@ -422,7 +422,7 @@ export function PickDialog({ kind, title, intro, load, initialQuery = "", summar
             <button key={c.id} id={`pick-${c.id}`} type="button" role="option" aria-selected={c.id === selected?.id}
               className="merge-row" onClick={() => onSelect(c)}>
               <Cover name={c.name} src={c.image} size={40} round={kind === "artist"} />
-              <span className="grow" style={{ display: "grid", minWidth: 0 }}>
+              <span className="grow vlist" style={{ minWidth: 0 }}>
                 <span className="truncate">{c.name}</span>
                 {c.sub && <span className="muted truncate" style={{ fontSize: 12 }}>{c.sub}</span>}
               </span>
@@ -490,11 +490,11 @@ function SplitDialog({ id, name, onCancel, onDone }: { id: number; name: string;
 
   return (
     <Modal wide onClose={onCancel}>
-      <div style={{ display: "grid", gap: 4 }}>
+      <div className="vlist" style={{ gap: 4 }}>
         <h3 style={{ fontSize: 17 }}>Split artist</h3>
         <p className="muted" style={{ fontSize: 13 }}>Select which artists you'd like to split this artist into.</p>
       </div>
-      <div style={{ display: "grid", gap: 4 }}>
+      <div className="vlist" style={{ gap: 4 }}>
         {rows.map((a, i) => (
           <div key={`${a.id ?? "new"}-${a.name}`} className="edit-row">
             <span className="grow truncate">{a.name}{!a.id && <> <Badge>New</Badge></>}</span>
@@ -567,7 +567,7 @@ export function PickChip({ kind, entry }: { kind: Kind; entry: PickEntry }) {
       <a className="pick-chip-name" href={withBase(ROUTES[kind] + entry.id)} target="_blank" rel="noopener">{entry.name}</a>
       <span className="pick-pop" role="tooltip">
         <Cover name={entry.name} src={entry.image} size={40} round={kind === "artist"} />
-        <span style={{ display: "grid", minWidth: 0 }}>
+        <span className="vlist" style={{ minWidth: 0 }}>
           <span className="pick-pop-title">{entry.name}</span>
           {entry.sub && <span className="muted">{entry.sub}</span>}
           {entry.plays !== undefined && <span className="faint">{entry.plays} {entry.plays === 1 ? "play" : "plays"}</span>}
