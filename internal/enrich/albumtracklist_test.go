@@ -1,10 +1,14 @@
 package enrich
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"younithm/internal/edit"
 	"younithm/internal/identity"
 	"younithm/internal/providers"
+	"younithm/internal/providers/snapshot"
 )
 
 // blueAlbum is a MusicBrainz catalogue holding one album, "rel-blue", whose
@@ -159,4 +163,101 @@ VALUES ('recording', ?, ?, 'mb-wrong', 'isrc', 1, 'auto')`, moved, prov)
 			}
 		})
 	}
+}
+
+// albumDupes sets up two recordings of "Song" on the album Blue, linked by hand
+// to rel-blue: the first already holds the album's recording, the second does
+// not yet. Merges go through the real editor.
+func albumDupes(t *testing.T) (e *idEnv, kept, dupe int64) {
+	t.Helper()
+	e = newIDEnv(t, blueAlbum())
+	ed := &edit.Editor{DB: e.db}
+	e.m = NewManager(e.db, e.m.matcher, snapshot.New(e.db), Options{Now: func() time.Time { return e.now }, MaxAttempts: 3,
+		Merge: func(ctx context.Context, kind string, from, into int64) error {
+			_, err := ed.Merge(ctx, "matching", kind, from, into)
+			return err
+		}})
+	kept, rel := e.listen(t, identity.Input{Artist: "Artist", Title: "Song", Album: "Blue", Credits: []identity.Credit{{Name: "Artist"}}})
+	dupe, rel2 := e.listen(t, identity.Input{Artist: "Artist", Title: "Song (feat. Guest)", Album: "Blue", Credits: []identity.Credit{{Name: "Artist"}}})
+	if rel != rel2 || kept == dupe {
+		t.Fatalf("setup: recordings %d %d on releases %d %d", kept, dupe, rel, rel2)
+	}
+	e.db.Exec(`INSERT INTO external_link (entity_type, entity_id, provider, provider_id, match_method, confidence, status)
+VALUES ('recording', ?, 'musicbrainz', 'mb-right', 'isrc', 1, 'auto')`, kept)
+	e.linkAlbum(t, rel)
+	return e, kept, dupe
+}
+
+func (e *idEnv) exists(t *testing.T, rec int64) bool {
+	return e.n(t, `SELECT COUNT(*) FROM recording WHERE id=?`, rec) == 1
+}
+
+// Two recordings the album's tracklist names as one track are merged, the
+// older one kept, with no ISRC needed.
+func TestOneTrackOnAHandLinkedAlbumIsMerged(t *testing.T) {
+	e, kept, dupe := albumDupes(t)
+	e.run(t)
+	e.m.autoMerge(context.Background())
+	if e.exists(t, dupe) || !e.exists(t, kept) {
+		t.Fatalf("not merged: kept %v, dupe %v", e.exists(t, kept), e.exists(t, dupe))
+	}
+	if e.n(t, `SELECT COUNT(*) FROM merge_candidate`) != 0 {
+		t.Fatal("flag left behind")
+	}
+}
+
+// A person's undo sticks: the pair is flagged again for a person, not merged.
+func TestAnUndoneAlbumMergeIsNotMadeAgain(t *testing.T) {
+	e, kept, dupe := albumDupes(t)
+	e.run(t)
+	e.m.autoMerge(context.Background())
+	var editID int64
+	if err := e.db.QueryRow(`SELECT id FROM edit_log WHERE scope='merge'`).Scan(&editID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&edit.Editor{DB: e.db}).Undo(context.Background(), "admin", editID); err != nil {
+		t.Fatal(err)
+	}
+	if !e.exists(t, dupe) {
+		t.Fatal("undo did not bring the recording back")
+	}
+	if err := e.m.Requeue(context.Background(), dupe); err != nil {
+		t.Fatal(err)
+	}
+	e.run(t)
+	e.m.autoMerge(context.Background())
+	if !e.exists(t, dupe) || !e.exists(t, kept) {
+		t.Fatal("merged again after a person undid it")
+	}
+	if e.n(t, `SELECT COUNT(*) FROM merge_candidate WHERE reason=?`, ReasonSameAlbumTrack) != 1 {
+		t.Fatal("pair not left flagged for a person")
+	}
+}
+
+// No merge without the proof: lengths that disagree, or an owner that is not
+// on the album (an ordinary "same id" flag, which still needs an ISRC).
+func TestAlbumDuplicatesNeedTheProof(t *testing.T) {
+	t.Run("lengths disagree", func(t *testing.T) {
+		e, kept, dupe := albumDupes(t)
+		e.db.Exec(`UPDATE recording SET duration_ms = CASE id WHEN ? THEN 200000 ELSE 260000 END WHERE id IN (?, ?)`, kept, kept, dupe)
+		e.run(t)
+		e.m.autoMerge(context.Background())
+		if !e.exists(t, dupe) {
+			t.Fatal("merged an edit 60s apart")
+		}
+	})
+	t.Run("owner not on the album", func(t *testing.T) {
+		e, kept, dupe := albumDupes(t)
+		var other int64
+		e.db.QueryRow(`INSERT INTO release (title) VALUES ('Other') RETURNING id`).Scan(&other)
+		e.db.Exec(`UPDATE recording_release SET release_id=? WHERE recording_id=?`, other, kept)
+		e.run(t)
+		e.m.autoMerge(context.Background())
+		if !e.exists(t, dupe) {
+			t.Fatal("merged a recording that is not on the album")
+		}
+		if e.n(t, `SELECT COUNT(*) FROM merge_candidate WHERE reason='same musicbrainz id'`) != 1 {
+			t.Fatal("not flagged as an ordinary same-id pair")
+		}
+	})
 }

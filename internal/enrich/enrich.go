@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -220,49 +221,74 @@ const recordingLengths = `
   WHERE l.entity_type = 'recording' AND l.entity_id = ?1 AND ` + trustedTrackLink + `
     AND COALESCE(json_extract(s.raw_json, '$.DurationMs'), 0) > 0`
 
-// autoMergeRecordings merges recordings flagged as one song: a catalogue id
-// found for one is held by the other ("same spotify id"), or an ISRC found
-// for one is held by the other ("same ISRC"). The merge needs proof from ids
-// and lengths: both recordings' trusted catalogue answers share an ISRC,
-// every length those answers give is within maxLengthGap of the others, and
-// the two hold no different MusicBrainz recordings. This is how two imports of
-// one song end up apart (a Spotify listen and an Apple listen, each creating a
-// recording by its own id, or one song on two albums). The older recording is
-// kept; the merge is undoable like any edit. Pairs without that proof stay
-// flagged for a person.
-func (m *Manager) autoMergeRecordings(ctx context.Context) {
-	rows, err := m.db.QueryContext(ctx, `SELECT id, entity_id, other_id FROM merge_candidate
-WHERE kind = 'recording' AND (reason LIKE 'same % id' OR reason = 'same ISRC')`)
-	if err != nil {
-		log.Printf("enrich: auto merge recordings: %v", err)
-		return
-	}
-	type pair struct{ id, a, b int64 }
-	var ps []pair
-	for rows.Next() {
-		var p pair
-		if err := rows.Scan(&p.id, &p.a, &p.b); err == nil {
-			ps = append(ps, p)
-		}
-	}
-	rows.Close()
-	for _, p := range ps {
-		var proven bool
-		err := m.db.QueryRowContext(ctx, `SELECT
-  EXISTS (SELECT 1 FROM (`+recordingISRCs+`) a
-          JOIN (`+strings.ReplaceAll(recordingISRCs, "?1", "?2")+`) b ON a.isrc = b.isrc)
-  AND (SELECT MAX(ms) - MIN(ms) <= ?3 AND COUNT(DISTINCT src) = 2 FROM (
-         SELECT ms, 1 AS src FROM (`+recordingLengths+`)
-         UNION ALL SELECT ms, 2 FROM (`+strings.ReplaceAll(recordingLengths, "?1", "?2")+`)))
-  AND NOT (
+// distinctMusicBrainz is true when the two recordings (?1, ?2) hold different
+// MusicBrainz recordings and none in common: MusicBrainz says they differ.
+const distinctMusicBrainz = `(
     EXISTS (SELECT 1 FROM external_link WHERE entity_type = 'recording' AND entity_id = ?1 AND provider = 'musicbrainz'
             AND status IN ('confirmed', 'auto') AND match_method <> 'mapping')
     AND EXISTS (SELECT 1 FROM external_link WHERE entity_type = 'recording' AND entity_id = ?2 AND provider = 'musicbrainz'
             AND status IN ('confirmed', 'auto') AND match_method <> 'mapping')
     AND NOT EXISTS (SELECT 1 FROM external_link x JOIN external_link y ON y.provider_id = x.provider_id
             WHERE x.entity_type = 'recording' AND x.entity_id = ?1 AND x.provider = 'musicbrainz' AND x.status IN ('confirmed', 'auto')
-              AND y.entity_type = 'recording' AND y.entity_id = ?2 AND y.provider = 'musicbrainz' AND y.status IN ('confirmed', 'auto')))`,
-			p.a, p.b, maxLengthGap).Scan(&proven)
+              AND y.entity_type = 'recording' AND y.entity_id = ?2 AND y.provider = 'musicbrainz' AND y.status IN ('confirmed', 'auto')))`
+
+// sameByISRC proves a pair one song by ISRC and length: both recordings'
+// trusted catalogue answers share an ISRC and every length they give is within
+// maxLengthGap (?3) of the others.
+var sameByISRC = `
+  EXISTS (SELECT 1 FROM (` + recordingISRCs + `) a
+          JOIN (` + strings.ReplaceAll(recordingISRCs, "?1", "?2") + `) b ON a.isrc = b.isrc)
+  AND (SELECT MAX(ms) - MIN(ms) <= ?3 AND COUNT(DISTINCT src) = 2 FROM (
+         SELECT ms, 1 AS src FROM (` + recordingLengths + `)
+         UNION ALL SELECT ms, 2 FROM (` + strings.ReplaceAll(recordingLengths, "?1", "?2") + `)))`
+
+// sameOnAlbum proves a pair flagged ReasonSameAlbumTrack: the two are still on
+// one album of ours, and their own lengths, where both are known, are within
+// maxLengthGap (?3).
+const sameOnAlbum = `
+  EXISTS (SELECT 1 FROM recording_release a JOIN recording_release b ON b.release_id = a.release_id
+          WHERE a.recording_id = ?1 AND b.recording_id = ?2)
+  AND NOT EXISTS (SELECT 1 FROM recording x, recording y WHERE x.id = ?1 AND y.id = ?2
+          AND x.duration_ms > 0 AND y.duration_ms > 0 AND abs(x.duration_ms - y.duration_ms) > ?3)`
+
+// autoMergeRecordings merges recordings flagged as one song, when ids prove
+// it. A catalogue id found for one is held by the other ("same spotify id"),
+// or an ISRC found for one is held by the other ("same ISRC"): both
+// recordings' trusted catalogue answers must share an ISRC with lengths that
+// agree. This is how two imports of one song end up apart (a Spotify listen
+// and an Apple listen, each creating a recording by its own id, or one song on
+// two albums). Or the tracklist of an album both are on names them as one
+// track (ReasonSameAlbumTrack): they only need to be on that album still, with
+// lengths that agree. Either way the two must not hold different MusicBrainz
+// recordings, and a merge a person undid is not made again. The older
+// recording is kept; the merge is undoable like any edit. Pairs without proof
+// stay flagged for a person.
+func (m *Manager) autoMergeRecordings(ctx context.Context) {
+	rows, err := m.db.QueryContext(ctx, `SELECT id, entity_id, other_id, reason FROM merge_candidate
+WHERE kind = 'recording' AND (reason LIKE 'same % id' OR reason IN ('same ISRC', ?))`, ReasonSameAlbumTrack)
+	if err != nil {
+		log.Printf("enrich: auto merge recordings: %v", err)
+		return
+	}
+	type pair struct {
+		id, a, b int64
+		reason   string
+	}
+	var ps []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.id, &p.a, &p.b, &p.reason); err == nil {
+			ps = append(ps, p)
+		}
+	}
+	rows.Close()
+	for _, p := range ps {
+		proof, why, failed := sameByISRC, "same ISRC and length", "same recording by ISRC and length"
+		if p.reason == ReasonSameAlbumTrack {
+			proof, why, failed = sameOnAlbum, ReasonSameAlbumTrack, "one track on the album"
+		}
+		var proven bool
+		err := m.db.QueryRowContext(ctx, `SELECT (`+proof+`) AND NOT `+distinctMusicBrainz, p.a, p.b, maxLengthGap).Scan(&proven)
 		if err != nil {
 			log.Printf("enrich: checking recordings %d and %d: %v", p.a, p.b, err)
 			continue
@@ -274,13 +300,16 @@ WHERE kind = 'recording' AND (reason LIKE 'same % id' OR reason = 'same ISRC')`)
 		if from < into {
 			into, from = from, into
 		}
+		if m.mergeUndone(ctx, identity.KindRecording, from, into) {
+			continue
+		}
 		if err := m.o.Merge(ctx, identity.KindRecording, from, into); err != nil {
 			log.Printf("enrich: merging recording %d into %d: %v", from, into, err)
-			_, _ = m.db.ExecContext(ctx, `UPDATE merge_candidate SET reason = 'same recording by ISRC and length' WHERE id = ?`, p.id)
+			_, _ = m.db.ExecContext(ctx, `UPDATE merge_candidate SET reason = ? WHERE id = ?`, failed, p.id)
 			continue
 		}
 		_, _ = m.db.ExecContext(ctx, `DELETE FROM merge_candidate WHERE kind = 'recording' AND (id = ? OR entity_id = ? OR other_id = ?)`, p.id, from, from)
-		log.Printf("enrich: merged recording %d into %d (same ISRC and length)", from, into)
+		log.Printf("enrich: merged recording %d into %d (%s)", from, into, why)
 	}
 }
 
@@ -603,7 +632,7 @@ func (m *Manager) handle(ctx context.Context, j job) {
 	if retryLater(err) {
 		return
 	}
-	outcome, err := m.store(ctx, j.recordingID, held, res, albums, stale)
+	outcome, err := m.store(ctx, j.recordingID, held, res, albums, albumEvidence{ids: rc.releaseIDs, stale: stale})
 	if err != nil {
 		m.fail(ctx, j, err)
 		return
@@ -841,9 +870,14 @@ WHERE entity_type='recording' AND entity_id=? AND status <> 'candidate' ORDER BY
 
 // store writes the ladder's links. Rejected candidates are skipped, and
 // candidates are dropped for a provider that already produced an auto link.
-// stale are held links the album's tracklist contradicts: an auto link from
-// the same provider replaces them.
-func (m *Manager) store(ctx context.Context, recID int64, held []heldTrack, res match.Result, albums map[string]providers.Album, stale map[string][]string) (string, error) {
+// albumEvidence is what the albums a person linked (or the listen named) say
+// about a recording: their ids by provider, and the held links their
+// tracklists contradict, which an auto link from the same provider replaces.
+type albumEvidence struct {
+	ids, stale map[string][]string
+}
+
+func (m *Manager) store(ctx context.Context, recID int64, held []heldTrack, res match.Result, albums map[string]providers.Album, ev albumEvidence) (string, error) {
 	autoFor := map[string]bool{}
 	for _, l := range res.Links {
 		if l.Status == match.StatusAuto {
@@ -906,7 +940,21 @@ WHERE entity_type='recording' AND entity_id=? AND provider=? AND provider_id=?`,
 				return "", err
 			}
 			if owner != 0 && owner != recID {
-				if err := identity.Candidate(ctx, tx, identity.KindRecording, recID, owner, "same "+l.Provider+" id"); err != nil {
+				same, err := sameAlbumTrack(ctx, tx, owner, l, ev.ids[l.Provider])
+				if err != nil {
+					return "", err
+				}
+				if same {
+					// Both are the one track of an album they share: a duplicate,
+					// merged automatically (see autoMergeRecordings). The links
+					// the tracklist disproved go, so they do not block the merge.
+					if err = dropStale(ctx, tx, recID, l.Provider, ev.stale[l.Provider], l.ProviderID); err == nil {
+						err = flagSameAlbumTrack(ctx, tx, recID, owner)
+					}
+				} else {
+					err = identity.Candidate(ctx, tx, identity.KindRecording, recID, owner, "same "+l.Provider+" id")
+				}
+				if err != nil {
 					return "", err
 				}
 				if outcome == OutcomeNoMatch {
@@ -916,14 +964,8 @@ WHERE entity_type='recording' AND entity_id=? AND provider=? AND provider_id=?`,
 			}
 		}
 		if l.Status == match.StatusAuto {
-			for _, old := range stale[l.Provider] {
-				if old == l.ProviderID {
-					continue
-				}
-				if _, err := tx.ExecContext(ctx, `DELETE FROM external_link WHERE entity_type='recording' AND entity_id=?
-AND provider=? AND provider_id=? AND status='auto' AND pinned=0`, recID, l.Provider, old); err != nil {
-					return "", err
-				}
+			if err := dropStale(ctx, tx, recID, l.Provider, ev.stale[l.Provider], l.ProviderID); err != nil {
+				return "", err
 			}
 		}
 		// A candidate an earlier scan left is promoted when this scan finds the
@@ -1067,4 +1109,66 @@ func (m *Manager) offAlbum(ctx context.Context, p providers.Provider, t *provide
 		}
 	}
 	return read, nil
+}
+
+// ReasonSameAlbumTrack flags two recordings the tracklist of an album both
+// are on names as one track.
+const ReasonSameAlbumTrack = "same track on the album"
+
+// sameAlbumTrack reports whether l, a track another recording (owner) holds,
+// was read off the tracklist of an album the recording is on (albumIDs, ones
+// the listen named or a person linked), and owner is on that album of ours too.
+func sameAlbumTrack(ctx context.Context, tx *sql.Tx, owner int64, l match.Link, albumIDs []string) (bool, error) {
+	if l.Track == nil {
+		return false, nil
+	}
+	for _, r := range l.Track.Releases {
+		if r.ProviderID == "" || !slices.ContainsFunc(albumIDs, func(id string) bool { return strings.EqualFold(id, r.ProviderID) }) {
+			continue
+		}
+		var on bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM recording_release rr
+JOIN external_link el ON el.entity_type='release' AND el.entity_id=rr.release_id
+WHERE rr.recording_id=? AND el.provider=? AND el.provider_id=? COLLATE NOCASE AND el.status <> 'candidate')`,
+			owner, l.Provider, r.ProviderID).Scan(&on)
+		if err != nil || on {
+			return on, err
+		}
+	}
+	return false, nil
+}
+
+// flagSameAlbumTrack records the pair as one track of an album, replacing a
+// weaker reason an earlier scan gave it.
+func flagSameAlbumTrack(ctx context.Context, tx *sql.Tx, a, b int64) error {
+	if a > b {
+		a, b = b, a
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO merge_candidate (kind, entity_id, other_id, reason) VALUES ('recording', ?, ?, ?)
+ON CONFLICT(kind, entity_id, other_id) DO UPDATE SET reason=excluded.reason`, a, b, ReasonSameAlbumTrack)
+	return err
+}
+
+// mergeUndone reports whether a person undid the merge of from into into, so
+// matching leaves the pair for a person instead of merging it again.
+func (m *Manager) mergeUndone(ctx context.Context, kind string, from, into int64) bool {
+	var n int
+	err := m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE scope='merge' AND entity_type=? AND entity_id=?
+  AND summary LIKE ? AND undone_at IS NOT NULL`, kind, into, fmt.Sprintf("Merge %s %d into %d%%", kind, from, into)).Scan(&n)
+	return err == nil && n > 0
+}
+
+// dropStale removes a recording's links that an album's tracklist disproved,
+// except keep (the id taking their place).
+func dropStale(ctx context.Context, tx *sql.Tx, recID int64, provider string, stale []string, keep string) error {
+	for _, old := range stale {
+		if old == keep {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM external_link WHERE entity_type='recording' AND entity_id=?
+AND provider=? AND provider_id=? AND status='auto' AND pinned=0`, recID, provider, old); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -1802,7 +1802,7 @@ func TestStoreNeverRewritesAConfirmedOrAutoLink(t *testing.T) {
 		{Provider: providers.MusicBrainz, ProviderID: "mb-conf", Method: match.MethodFuzzy, Confidence: 0.91, Status: match.StatusAuto},
 		{Provider: providers.MusicBrainz, ProviderID: "mb-auto", Method: match.MethodFuzzy, Confidence: 0.91, Status: match.StatusAuto},
 	}}
-	if _, err := e.m.store(context.Background(), rec, nil, res, nil, nil); err != nil {
+	if _, err := e.m.store(context.Background(), rec, nil, res, nil, albumEvidence{}); err != nil {
 		t.Fatal(err)
 	}
 	if e.n(t, `SELECT COUNT(*) FROM external_link WHERE entity_type='recording' AND entity_id=? AND provider_id='mb-conf' AND status='confirmed' AND match_method='manual' AND confidence=1.0`, rec) != 1 ||

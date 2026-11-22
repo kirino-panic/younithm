@@ -45,6 +45,7 @@ Enrichment (see [providers.md](providers.md)) only adds ids, names, artwork and 
 - **Gaps are filled.** A recording with no album gets the one a catalogue names, preferring the album the listen itself named. Plays with no album of their own get the recording's primary release. An album's date comes from the album lookup, never from a song's own date.
 - **Names become aliases.** Every name a provider returns is added as an alias of what it matched, unless it is another entity's name.
 - **Conflicts are flagged, not moved.** An id already owned by another entity becomes a `merge_candidate`.
+- **Duplicates with proof are merged.** Two recordings are merged through the editor (undoable, actor `matching`, the older one kept) when ids prove them one song: their catalogue answers share an ISRC and their lengths agree, or the tracklist of an album both are on (one the listen named or a person linked) names them as one track and their own lengths, where known, are within 3 seconds. Recordings holding different MusicBrainz recordings are never merged this way. A merge a person undoes is not made again; the pair stays flagged.
 - **Hand edits win.** A recording with an entry in the edit log keeps its artists and albums.
 
 ## Stats
