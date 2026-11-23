@@ -282,7 +282,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   };
 
   return (
-    <Sheet wide title={`Edit ${LABELS[kind]}`} onClose={onClose}
+    <Sheet wide divided title={`Edit ${LABELS[kind]}`} onClose={onClose}
       footer={<>
         <span className="foot-start" style={{ display: "flex", gap: 4 }}>
           <button className="btn btn-plain" onClick={() => setMerging(true)}>Merge…</button>

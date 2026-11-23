@@ -54,14 +54,15 @@ export function ActionRow({ children, onClick, danger, disabled }: { children: R
   return <button className={`row-setting row-action${danger ? " danger" : ""}`} disabled={disabled} onClick={onClick}>{children}</button>;
 }
 
-export function Sheet({ title, onClose, children, footer, wide, noClose }: {
+export function Sheet({ title, onClose, children, footer, wide, noClose, divided }: {
   title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; noClose?: boolean; // noClose: the footer has the buttons
+  divided?: boolean; // a line between sections
 }) {
   useEscape(onClose, true);
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <aside className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-label={typeof title === "string" ? title : undefined}>
+      <aside className={`sheet${wide ? " sheet-wide" : ""}${divided ? " sheet-divided" : ""}`} role="dialog" aria-label={typeof title === "string" ? title : undefined}>
         <div className="sheet-head">{title}{!noClose && <button className="btn btn-plain btn-icon" onClick={onClose} aria-label="Close"><X size={18} /></button>}</div>
         <div className="sheet-body">{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
