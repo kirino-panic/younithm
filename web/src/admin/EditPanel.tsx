@@ -290,8 +290,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             )}
             {kind === "release" && startCredits.length > 0 && (
               <div className="edit-row edit-apply">
-                <span className="grow muted" style={{ fontSize: 13 }}>{creditsChanged ? "Save first to apply these artists" : "Credit every track to these artists"}</span>
-                <button className="btn" disabled={busy || creditsChanged} onClick={applyToTracks}><Users size={15} /> Apply to tracks</button>
+                <button className="btn" disabled={busy || creditsChanged} title={creditsChanged ? "Save first" : undefined} onClick={applyToTracks}><Users size={15} /> Apply to all tracks on album</button>
               </div>
             )}
           </div>
@@ -361,9 +360,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         <div className="section-label section-label-row">
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             Links
-            {kind !== "artist" && <InfoTip label="About refresh" text={kind === "release"
-              ? "Refresh looks every track on this album up in the linked catalogues again and fills in what's missing, like lengths."
-              : "Refresh looks this track up in the linked catalogues again and fills in what's missing, like its length."} />}
+            {kind !== "artist" && <InfoTip label="About refresh" text="Refetches metadata from providers and attempts to fill in data that might be missing." />}
           </span>
           {kind !== "artist" && <button className="btn btn-plain" style={{ margin: "-6px 0" }} onClick={refresh}><RefreshCw size={15} /> Refresh</button>}
         </div>
