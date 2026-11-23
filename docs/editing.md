@@ -42,6 +42,8 @@ The resolver checks aliases before matching by name, at ingest and import. Alias
 
 A scrobble's album must be one its recording is on, unless the edit links it in the same step (`link_release`). Re-pointing a scrobble at a recording that isn't on its album drops the album. A recording's first album becomes primary. Removing a recording from its primary album promotes the earliest remaining one.
 
+"Apply to tracks" credits every track on an album to the album's artists. It is one edit with one undo, and tracks already credited that way are left out. Enrichment treats each track it changed as edited by hand, so a catalogue's credits don't replace it.
+
 ## Bulk edit
 
 Filter by any of `ids`, `from`, `to`, `source`, `raw_artist`, `raw_title`, `raw_album`, `recording_id`, `release_id`, `artist_id`, `unmatched`. Set `recording_id`, `release_id`, `link_release` or `shift_seconds`. Preview first; apply must send the preview's `expected_matched`, or it returns `409 count_changed`. Up to 50,000 rows, one log entry, one undo.
@@ -63,6 +65,8 @@ Under `/api/v1/admin`.
 | `POST /scrobbles/bulk/apply` | `{filter, set, expected_matched}` (step-up) |
 | `PATCH /entities/{kind}/{id}` | Edit fields (`kind`: artist, recording, release); `drop_alias` skips keeping the old name |
 | `PUT /entities/{kind}/{id}/artists` | Replace credits |
+| `POST /releases/{id}/apply-artists` | The album's artists onto every track on it |
+| `POST /entities/{kind}/{id}/refresh` | Look a recording, or every recording on a release, up again; fills what's missing, like lengths. Not an edit |
 | `PUT /entities/{kind}/{id}/links` | Link a provider URL |
 | `DELETE /entities/{kind}/{id}/links/{provider}` | Remove a link |
 | `POST`/`DELETE /entities/{kind}/{id}/image` | Upload or reset an image override |

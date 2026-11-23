@@ -261,7 +261,13 @@ func pairArtists(ctx context.Context, tx *sql.Tx, ours []ourArtist, t *providers
 // is not such an edit: the lookup through that link should fill details in.
 func handEdited(ctx context.Context, tx *sql.Tx, recID int64) (bool, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE entity_type='recording' AND entity_id=? AND scope<>'link'`, recID).Scan(&n)
+	// An album's artists applied to its tracks is logged on the album; the
+	// tracks it changed are in its rows.
+	err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM edit_log WHERE (entity_type='recording' AND entity_id=?1 AND scope<>'link')
+   OR (entity_type='release' AND scope='credits' AND EXISTS (
+        SELECT 1 FROM json_each(after_json) j
+        WHERE json_extract(j.value, '$.t')='recording_artist' AND json_extract(j.value, '$.k.recording_id')=?1))`, recID).Scan(&n)
 	return n > 0, err
 }
 

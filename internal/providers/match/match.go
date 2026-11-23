@@ -51,8 +51,8 @@ type Listen struct {
 	// other albums of that provider is not the recording that was played, and
 	// the album's tracklist is read to find the one that was. Empty = unknown.
 	ReleaseIDs  map[string][]string
-	ArtistMBIDs  []string
-	ISRC         string
+	ArtistMBIDs []string
+	ISRC        string
 	// ReleaseDate is the release date of the album the listen was on (YYYY,
 	// YYYY-MM or YYYY-MM-DD), when known. A candidate recording that is only on
 	// releases from other dates is a different edition's recording; one on a

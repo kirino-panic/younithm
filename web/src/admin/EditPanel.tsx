@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, RefreshCw, Star, Users, X } from "lucide-react";
 import { endpoints, ApiError, withBase, type Credit, type CreditIn, type MergeCandidate } from "../api";
 import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, useToast } from "../ui";
 
@@ -107,6 +107,40 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   };
 
   const creditsChanged = JSON.stringify(artists) !== JSON.stringify(startCredits);
+
+  // Credits every track on this album to its artists, right away (one undo).
+  const applyToTracks = async () => {
+    setBusy(true); setErr("");
+    try {
+      const res = await endpoints.applyAlbumArtists(id);
+      onSaved();
+      const n = res.summary.match(/to (\d+) tracks/)?.[1];
+      toast({
+        text: n === "1" ? "Applied to 1 track" : `Applied to ${n ?? "the"} tracks`,
+        action: {
+          label: "Undo",
+          run: () => endpoints.undo(res.edit_id).then(onSaved)
+            .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
+        },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "no_change") toast({ text: "Every track already has these artists" });
+      else setErr(e instanceof ApiError ? e.message : "Couldn't apply.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Queues a fresh catalogue lookup; what it finds fills in over the next minute.
+  const refresh = async () => {
+    setErr("");
+    try {
+      await endpoints.refresh(kind, id);
+      toast({ text: kind === "release" ? "Looking up the album's tracks again" : "Looking this track up again" });
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Couldn't refresh.");
+    }
+  };
   const move = (i: number, d: number) => setArtists((a) => {
     const n = [...a];
     [n[i], n[i + d]] = [n[i + d], n[i]];
@@ -254,6 +288,12 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             ) : (
               <button className="btn edit-add" onClick={() => setAdding("artist")}><Plus size={15} /> Add artist</button>
             )}
+            {kind === "release" && startCredits.length > 0 && (
+              <div className="edit-row edit-apply">
+                <span className="grow muted" style={{ fontSize: 13 }}>{creditsChanged ? "Save first to apply these artists" : "Credit every track to these artists"}</span>
+                <button className="btn" disabled={busy || creditsChanged} onClick={applyToTracks}><Users size={15} /> Apply to tracks</button>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -318,7 +358,15 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       )}
 
       <section>
-        <div className="section-label">Links</div>
+        <div className="section-label section-label-row">
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            Links
+            {kind !== "artist" && <InfoTip label="About refresh" text={kind === "release"
+              ? "Refresh looks every track on this album up in the linked catalogues again and fills in what's missing, like lengths."
+              : "Refresh looks this track up in the linked catalogues again and fills in what's missing, like its length."} />}
+          </span>
+          {kind !== "artist" && <button className="btn btn-plain" style={{ margin: "-6px 0" }} onClick={refresh}><RefreshCw size={15} /> Refresh</button>}
+        </div>
         <div className="vlist" style={{ gap: 4 }}>
           {PROVIDERS.map(([p, label]) => {
             const cur = links[p];

@@ -325,7 +325,6 @@ func (c *Client) LookupReleaseTracks(ctx context.Context, releaseID string) ([]p
 	return tracks, nil
 }
 
-
 const lookupInc = "artists+releases+isrcs+release-groups"
 
 // GetTrack looks a recording up by MBID.

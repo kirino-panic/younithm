@@ -21,9 +21,7 @@ type CreditIn struct {
 
 // SetCredits replaces the artists of a recording or release, in order.
 func (e *Editor) SetCredits(ctx context.Context, actor, kind string, id int64, in []CreditIn) (*Result, error) {
-	table := map[string]string{KindRecording: "recording_artist", KindRelease: "release_artist"}[kind]
-	col := map[string]string{KindRecording: "recording_id", KindRelease: "release_id"}[kind]
-	if table == "" {
+	if kind != KindRecording && kind != KindRelease {
 		return nil, invalid("bad_kind", "kind must be recording or release")
 	}
 	if len(in) == 0 {
@@ -36,67 +34,124 @@ func (e *Editor) SetCredits(ctx context.Context, actor, kind string, id int64, i
 		if _, err := e.entityExists(ctx, tx, kind, id); err != nil {
 			return nil, err
 		}
-		pl := newPlanner(ctx, tx, e.now())
-		ids, cs, err := pl.credits(in)
+		cs, err := creditChanges(ctx, tx, newPlanner(ctx, tx, e.now()), kind, id, in)
 		if err != nil {
 			return nil, err
 		}
-		old, err := queryRows(ctx, tx, `SELECT `+cols(table)+` FROM `+table+` WHERE `+col+`=?`, id)
-		if err != nil {
-			return nil, err
-		}
-		// Rows kept (same key) are updated in place; the rest removed or added.
-		want := map[string]Row{}
-		var order []string
-		for i, aid := range ids {
-			var jp any
-			if i < len(in)-1 && in[i].JoinPhrase != "" {
-				jp = in[i].JoinPhrase
-			}
-			var cn any
-			if v := strings.TrimSpace(in[i].CreditedName); v != "" {
-				cn = v
-			}
-			n := Row{col: id, "artist_id": aid, "position": int64(i), "join_phrase": jp, "credited_name": cn}
-			if kind == KindRecording {
-				n["role"] = "primary"
-			}
-			k := canon(pickKey(tables[table], n))
-			want[k] = n
-			order = append(order, k)
-		}
-		var changed bool
-		for _, r := range old {
-			k := canon(pickKey(tables[table], r))
-			n, keep := want[k]
-			if !keep {
-				cs = append(cs, Change{Table: table, Key: pickKey(tables[table], r), Before: r})
-				changed = true
-				continue
-			}
-			before, after := Row{}, Row{}
-			for _, c := range []string{"position", "join_phrase", "credited_name"} {
-				if canon(r[c]) != canon(n[c]) {
-					before[c], after[c] = r[c], n[c]
-				}
-			}
-			if len(after) > 0 {
-				cs = append(cs, Change{Table: table, Key: pickKey(tables[table], r), Before: before, After: after})
-				changed = true
-			}
-			delete(want, k)
-		}
-		for _, k := range order {
-			if n, ok := want[k]; ok {
-				cs = append(cs, Change{Table: table, Key: pickKey(tables[table], n), After: n})
-				changed = true
-			}
-		}
-		if !changed {
+		if len(cs) == 0 {
 			return nil, ErrNoChange
 		}
 		return &draft{scope: "credits", entityType: kind, entityID: id,
 			summary: fmt.Sprintf("Set artists of %s %d", kind, id), changes: cs}, nil
+	})
+}
+
+// creditChanges plans replacing the artists of a recording or release with in.
+// It returns nothing when they already match. Artists created for names in in
+// are among the changes.
+func creditChanges(ctx context.Context, tx *sql.Tx, pl *planner, kind string, id int64, in []CreditIn) ([]Change, error) {
+	table := map[string]string{KindRecording: "recording_artist", KindRelease: "release_artist"}[kind]
+	col := map[string]string{KindRecording: "recording_id", KindRelease: "release_id"}[kind]
+	ids, cs, err := pl.credits(in)
+	if err != nil {
+		return nil, err
+	}
+	created := len(cs)
+	old, err := queryRows(ctx, tx, `SELECT `+cols(table)+` FROM `+table+` WHERE `+col+`=?`, id)
+	if err != nil {
+		return nil, err
+	}
+	// Rows kept (same key) are updated in place; the rest removed or added.
+	want := map[string]Row{}
+	var order []string
+	for i, aid := range ids {
+		var jp any
+		if i < len(in)-1 && in[i].JoinPhrase != "" {
+			jp = in[i].JoinPhrase
+		}
+		var cn any
+		if v := strings.TrimSpace(in[i].CreditedName); v != "" {
+			cn = v
+		}
+		n := Row{col: id, "artist_id": aid, "position": int64(i), "join_phrase": jp, "credited_name": cn}
+		if kind == KindRecording {
+			n["role"] = "primary"
+		}
+		k := canon(pickKey(tables[table], n))
+		want[k] = n
+		order = append(order, k)
+	}
+	for _, r := range old {
+		k := canon(pickKey(tables[table], r))
+		n, keep := want[k]
+		if !keep {
+			cs = append(cs, Change{Table: table, Key: pickKey(tables[table], r), Before: r})
+			continue
+		}
+		before, after := Row{}, Row{}
+		for _, c := range []string{"position", "join_phrase", "credited_name"} {
+			if canon(r[c]) != canon(n[c]) {
+				before[c], after[c] = r[c], n[c]
+			}
+		}
+		if len(after) > 0 {
+			cs = append(cs, Change{Table: table, Key: pickKey(tables[table], r), Before: before, After: after})
+		}
+		delete(want, k)
+	}
+	for _, k := range order {
+		if n, ok := want[k]; ok {
+			cs = append(cs, Change{Table: table, Key: pickKey(tables[table], n), After: n})
+		}
+	}
+	if len(cs) == created {
+		return nil, nil
+	}
+	return cs, nil
+}
+
+// ApplyReleaseArtists credits every track on an album to the album's artists,
+// as one edit with one undo. Tracks already credited that way are left alone.
+func (e *Editor) ApplyReleaseArtists(ctx context.Context, actor string, rel int64) (*Result, error) {
+	return e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
+		if _, err := e.entityExists(ctx, tx, KindRelease, rel); err != nil {
+			return nil, err
+		}
+		rows, err := queryRows(ctx, tx, `SELECT artist_id, join_phrase, credited_name FROM release_artist WHERE release_id=? ORDER BY position`, rel)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return nil, invalid("no_artists", "this album has no artists to apply")
+		}
+		in := make([]CreditIn, len(rows))
+		for i, r := range rows {
+			in[i].ArtistID, _ = r["artist_id"].(int64)
+			in[i].JoinPhrase, _ = r["join_phrase"].(string)
+			in[i].CreditedName, _ = r["credited_name"].(string)
+		}
+		recs, err := queryRows(ctx, tx, `SELECT DISTINCT recording_id FROM recording_release WHERE release_id=? ORDER BY recording_id`, rel)
+		if err != nil {
+			return nil, err
+		}
+		pl := newPlanner(ctx, tx, e.now())
+		var cs []Change
+		n := 0
+		for _, r := range recs {
+			c, err := creditChanges(ctx, tx, pl, KindRecording, r["recording_id"].(int64), in)
+			if err != nil {
+				return nil, err
+			}
+			if len(c) > 0 {
+				cs = append(cs, c...)
+				n++
+			}
+		}
+		if n == 0 {
+			return nil, ErrNoChange
+		}
+		return &draft{scope: "credits", entityType: KindRelease, entityID: rel,
+			summary: fmt.Sprintf("Apply artists of release %d to %d tracks", rel, n), changes: cs}, nil
 	})
 }
 

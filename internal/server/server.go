@@ -176,10 +176,16 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 	})
 	nm := names.New(pools.Read, pools.Write)                      // display-name preference
 	var onLinkChanged atomic.Pointer[func(kind string, id int64)] // set once enrichment exists
+	var onRefresh atomic.Pointer[func(kind string, id int64) error]
 	edit.Mount(r, pools, edit.Hooks{LinkChanged: func(kind string, id int64) {
 		if f := onLinkChanged.Load(); f != nil {
 			(*f)(kind, id)
 		}
+	}, Refresh: func(kind string, id int64) error {
+		if f := onRefresh.Load(); f != nil {
+			return (*f)(kind, id)
+		}
+		return errors.New("lookups are not running yet")
 	}, NamesChanged: nm.Forget, ArtDir: filepath.Join(filepath.Dir(pools.Path), "artwork")}) // admin editing endpoints + edit history
 
 	var afterImport atomic.Pointer[func()] // set once the enrichment manager exists
@@ -304,6 +310,19 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 		enr.Wake()
 	}
 	onLinkChanged.Store(&relink)
+	refresh := func(kind string, id int64) error {
+		var err error
+		if kind == "release" {
+			err = enr.RequeueRelease(o.bg, id)
+		} else {
+			err = enr.Requeue(o.bg, id)
+		}
+		if err == nil {
+			enr.Wake()
+		}
+		return err
+	}
+	onRefresh.Store(&refresh)
 	go enr.Run(o.bg) // providers without credentials are skipped per call
 	// Covers and artist photos: downloaded from the linked providers into
 	// <config>/artwork and served at /api/v1/art/{kind}/{id}. Not rate limited

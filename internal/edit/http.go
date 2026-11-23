@@ -41,6 +41,8 @@ import (
 //	PUT    /api/v1/admin/recordings/{id}/no-album        {no_album}
 //	POST   /api/v1/admin/entities/{kind}/{id}/image      multipart "file"   (artist, release)
 //	DELETE /api/v1/admin/entities/{kind}/{id}/image      back to the fetched image
+//	POST   /api/v1/admin/releases/{id}/apply-artists     the album's artists onto every track
+//	POST   /api/v1/admin/entities/{kind}/{id}/refresh    look the track (or every album track) up again
 //
 // Hooks lets the server react to edits other parts care about.
 type Hooks struct {
@@ -49,6 +51,9 @@ type Hooks struct {
 	// NamesChanged runs after an edit that can change which name shows
 	// (a rename, a pin cleared, a merge, an undo).
 	NamesChanged func()
+	// Refresh queues a recording, or every recording on a release, to be
+	// looked up in the catalogues again.
+	Refresh func(kind string, id int64) error
 	// ArtDir is the artwork folder images chosen by hand are saved in.
 	ArtDir string
 }
@@ -82,6 +87,8 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Put(p+"/recordings/{id}/no-album", h.setNoAlbum)
 		r.Put(p+"/recordings/{id}/primary-release", h.setPrimary)
 		r.Put(p+"/entities/{kind}/{id}/artists", h.setCredits)
+		r.Post(p+"/releases/{id}/apply-artists", h.applyReleaseArtists)
+		r.Post(p+"/entities/{kind}/{id}/refresh", h.refresh)
 		r.Put(p+"/entities/{kind}/{id}/links", h.setLink)
 		r.Post(p+"/entities/{kind}/{id}/image", h.setImage)
 		r.Delete(p+"/entities/{kind}/{id}/image", h.resetImage)
@@ -430,6 +437,40 @@ func (h *handlers) setCredits(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.ed.SetCredits(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Artists)
 	done(w, res, err)
+}
+
+func (h *handlers) applyReleaseArtists(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	res, err := h.ed.ApplyReleaseArtists(r.Context(), actor(r), id)
+	done(w, res, err)
+}
+
+func (h *handlers) refresh(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	kind := chi.URLParam(r, "kind")
+	if kind != KindRecording && kind != KindRelease {
+		fail(w, invalid("bad_kind", "only tracks and albums can be refreshed"))
+		return
+	}
+	if _, err := h.ed.entityExists(r.Context(), h.read, kind, id); err != nil {
+		fail(w, err)
+		return
+	}
+	if h.hooks.Refresh == nil {
+		fail(w, invalid("unavailable", "lookups are off"))
+		return
+	}
+	if err := h.hooks.Refresh(kind, id); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"queued": true})
 }
 
 func (h *handlers) linkChanged(kind string, id int64) {

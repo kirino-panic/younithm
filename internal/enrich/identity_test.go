@@ -3,6 +3,7 @@ package enrich
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -519,6 +520,24 @@ func TestHandEditedRecordingKeepsItsArtists(t *testing.T) {
 	e.run(t)
 	if e.n(t, `SELECT COUNT(*) FROM recording_artist WHERE recording_id=?`, rec) != 1 {
 		t.Fatal("a hand-edited recording had its artists replaced")
+	}
+}
+
+// Album artists applied to its tracks count as a hand edit of each track the
+// edit changed, though the edit is logged on the album.
+func TestAlbumArtistsAppliedByHandAreKept(t *testing.T) {
+	track := providers.Track{Provider: providers.Spotify, ProviderID: "spJ", Title: "Song",
+		Artists: []providers.Artist{{ProviderID: "spA", Name: "Alice"}, {ProviderID: "spB", Name: "Bob"}}}
+	sp := &catalogFake{name: providers.Spotify, byID: map[string]providers.Track{"spJ": track}}
+	e := newIDEnv(t, sp)
+	rec, _ := e.listen(t, identity.Input{Artist: "Alice", Title: "Song", SpotifyTrackID: "spJ", Credits: []identity.Credit{{Name: "Alice"}}})
+	if _, err := e.db.Exec(`INSERT INTO edit_log (actor, entity_type, entity_id, scope, after_json) VALUES ('admin','release',99,'credits',?)`,
+		fmt.Sprintf(`[{"t":"recording_artist","k":{"recording_id":%d,"artist_id":1,"role":"primary"},"r":{}}]`, rec)); err != nil {
+		t.Fatal(err)
+	}
+	e.run(t)
+	if e.n(t, `SELECT COUNT(*) FROM recording_artist WHERE recording_id=?`, rec) != 1 {
+		t.Fatal("a track whose album artists were applied by hand had its artists replaced")
 	}
 }
 

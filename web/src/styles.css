@@ -620,6 +620,8 @@ a.metric:hover { background: var(--fill-2, var(--fill)); }
 .edit-add { justify-self: start; padding-left: 0; padding-right: 0; color: var(--accent); background: none; border-color: transparent; }
 .edit-add:hover { background: none; text-decoration: underline; }
 .sheet-foot .foot-start { margin-right: auto; }
+.section-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.edit-apply { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--sep); }
 
 /* Top list: rows share the card's height so 5 or 10 always fit exactly. */
 .tile-top .list-fill > .list-row, .tile-recent .list-fill > .list-row { flex: 1 1 0; min-height: 40px; max-height: none; padding-top: 0; padding-bottom: 0; }

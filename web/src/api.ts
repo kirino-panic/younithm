@@ -274,6 +274,10 @@ export const endpoints = {
   setLanguages: (languages: string[]) => api.put<LanguagePrefs>("/api/v1/admin/languages", { languages }),
   search: (kind: "artist" | "recording" | "release", q: string) => api.get<{ items: SearchHit[] }>(`/api/v1/admin/search?kind=${kind}&q=${encodeURIComponent(q)}`),
   setCredits: (kind: string, id: number, artists: CreditIn[]) => api.put(`/api/v1/admin/entities/${kind}/${id}/artists`, { artists }),
+  // The album's artists onto every track on it, as one undoable edit.
+  applyAlbumArtists: (rel: number) => api.post<EditResult>(`/api/v1/admin/releases/${rel}/apply-artists`),
+  // Looks a track, or every track on an album, up in the catalogues again.
+  refresh: (kind: string, id: number) => api.post<{ queued: boolean }>(`/api/v1/admin/entities/${kind}/${id}/refresh`),
   setLink: (kind: string, id: number, url: string) => api.put(`/api/v1/admin/entities/${kind}/${id}/links`, { url }),
   removeLink: (kind: string, id: number, provider: string) => api.del(`/api/v1/admin/entities/${kind}/${id}/links/${provider}`),
   addRelease: (rec: number, body: { release_id?: number; title?: string }) => api.post(`/api/v1/admin/recordings/${rec}/releases`, body),
