@@ -450,15 +450,25 @@ func guardedClient() *http.Client {
 	}
 }
 
+// NoImage in image_override means a person removed the image: the entity
+// shows none, whatever was fetched. It can't be an uploaded file's name.
+const NoImage = "-"
+
 // ReleaseImage is the SQL for the image a release shows: one chosen by hand,
-// else the fetched one. alias names the release table in the query.
+// else the fetched one; NULL when it was removed by hand. alias names the
+// release table in the query.
 func ReleaseImage(alias string) string {
-	return `COALESCE(NULLIF(` + alias + `.image_override, ''), ` + alias + `.artwork_path)`
+	return chosenImage(alias, "artwork_path")
 }
 
 // ArtistImage is ReleaseImage for an artist.
 func ArtistImage(alias string) string {
-	return `COALESCE(NULLIF(` + alias + `.image_override, ''), ` + alias + `.image_path)`
+	return chosenImage(alias, "image_path")
+}
+
+func chosenImage(alias, fetched string) string {
+	return `(CASE WHEN ` + alias + `.image_override = '` + NoImage + `' THEN NULL
+  ELSE COALESCE(NULLIF(` + alias + `.image_override, ''), ` + alias + `.` + fetched + `) END)`
 }
 
 // SaveUpload checks an uploaded image by its content and writes it under dir.

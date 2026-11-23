@@ -359,6 +359,15 @@ func TestUploadOverridesFetched(t *testing.T) {
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), png) {
 		t.Fatalf("serve override: %d", w.Code)
 	}
+	e.exec(t, `UPDATE release SET image_override = ? WHERE id = 1`, NoImage)
+	if got := e.str(t, `SELECT COALESCE(`+ReleaseImage("release")+`, 'none') FROM release WHERE id = 1`); got != "none" {
+		t.Fatalf("removed shows %q", got)
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/art/release/1", nil))
+	if w.Code != 404 {
+		t.Fatalf("serve removed: %d", w.Code)
+	}
 	e.exec(t, `UPDATE release SET image_override = NULL WHERE id = 1`)
 	if got := e.str(t, `SELECT `+ReleaseImage("release")+` FROM release WHERE id = 1`); got != "fetched.png" {
 		t.Fatalf("after clear %q", got)

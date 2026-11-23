@@ -41,6 +41,7 @@ import (
 //	PUT    /api/v1/admin/recordings/{id}/no-album        {no_album}
 //	POST   /api/v1/admin/entities/{kind}/{id}/image      multipart "file"   (artist, release)
 //	DELETE /api/v1/admin/entities/{kind}/{id}/image      back to the fetched image
+//	POST   /api/v1/admin/entities/{kind}/{id}/image/remove  show no image
 //	GET    /api/v1/admin/entities/{kind}/{id}/aliases    other names, matching and search-only
 //	PUT    /api/v1/admin/entities/{kind}/{id}/aliases    {name, search_only}
 //	POST   /api/v1/admin/entities/{kind}/{id}/aliases/remove {name}  stays removed
@@ -102,6 +103,7 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Put(p+"/entities/{kind}/{id}/links", h.setLink)
 		r.Post(p+"/entities/{kind}/{id}/image", h.setImage)
 		r.Delete(p+"/entities/{kind}/{id}/image", h.resetImage)
+		r.Post(p+"/entities/{kind}/{id}/image/remove", h.removeImage)
 		r.Delete(p+"/entities/{kind}/{id}/links/{provider}", h.removeLink)
 		r.Get(p+"/search", h.search)
 		r.Get(p+"/entities/{kind}/{id}/merge-candidates", h.mergeCandidates)
@@ -671,6 +673,15 @@ func (h *handlers) resetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.ed.SetImage(r.Context(), actor(r), chi.URLParam(r, "kind"), id, "")
+	done(w, res, err)
+}
+
+func (h *handlers) removeImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	res, err := h.ed.SetImage(r.Context(), actor(r), chi.URLParam(r, "kind"), id, artwork.NoImage)
 	done(w, res, err)
 }
 

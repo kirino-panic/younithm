@@ -73,7 +73,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   // Image: a new file to upload, or "default" to go back to the fetched one.
-  const [newImage, setNewImage] = useState<File | "default" | null>(null);
+  const [newImage, setNewImage] = useState<File | "default" | "none" | null>(null);
   const [preview, setPreview] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -82,7 +82,10 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
     setPreview(u);
     return () => URL.revokeObjectURL(u);
   }, [newImage]);
-  const custom = newImage instanceof File || (imageCustom && newImage !== "default");
+  // A custom image with nothing to show is one removed by hand.
+  const removed = imageCustom && !image;
+  const custom = newImage instanceof File || (imageCustom && !removed && newImage === null);
+  const shown = newImage instanceof File ? preview : newImage === null ? image : undefined;
 
   const searchArtists = useCallback((q: string) => endpoints.search("artist", q).then((r) => r.items), []);
   const searchAlbums = useCallback((q: string) => endpoints.search("release", q).then((r) => r.items), []);
@@ -207,6 +210,9 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       } else if (newImage === "default" && imageCustom) {
         await endpoints.resetImage(kind, id);
         done.push("image");
+      } else if (newImage === "none" && !removed) {
+        await endpoints.removeImage(kind, id);
+        done.push("image");
       }
       if (kind !== "artist" && credits && creditsChanged) {
         if (!artists.length) throw new ApiError(400, "bad_value", "Add at least one artist.");
@@ -314,12 +320,15 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         <section>
           <div className="section-label">Image</div>
           <div className="edit-row" style={{ gap: 12 }}>
-            <Cover name={override || name} src={preview ?? (newImage === "default" ? undefined : image)} size={56} round={kind === "artist"} />
+            <Cover name={override || name} src={shown} size={56} round={kind === "artist"} />
             <span className="grow muted" style={{ fontSize: 13 }}>
-              {newImage === "default" ? "Found automatically, when there is one" : custom ? "Chosen by you" : image ? "Found automatically" : "None yet"}
+              {newImage === "default" ? "Found automatically, when there is one"
+                : newImage === "none" || (newImage === null && removed) ? "No image"
+                : custom ? "Chosen by you" : image ? "Found automatically" : "None yet"}
             </span>
-            {custom && <button className="btn btn-plain" onClick={() => setNewImage(imageCustom ? "default" : null)}>Use default</button>}
-            {newImage === "default" && <button className="btn btn-plain" onClick={() => setNewImage(null)}>Keep</button>}
+            {(custom || (newImage === null && removed)) && <button className="btn btn-plain" onClick={() => setNewImage(imageCustom ? "default" : null)}>Use default</button>}
+            {(newImage === "default" || newImage === "none") && <button className="btn btn-plain" onClick={() => setNewImage(null)}>Keep</button>}
+            {shown && <button className="btn btn-plain" onClick={() => setNewImage("none")}>Remove</button>}
             <button className="btn" onClick={() => fileInput.current?.click()}>Choose…</button>
           </div>
           <input ref={fileInput} type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif"

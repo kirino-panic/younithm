@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"younithm/internal/artwork"
 )
 
 var kindTable = map[string]string{KindArtist: "artist", KindRecording: "recording", KindRelease: "release"}
@@ -222,8 +224,9 @@ func validDate(s string) bool {
 func EditEntity(fields map[string]any) EntityEdit { return EntityEdit{Fields: fields} }
 
 // SetImage points an artist or album at an image chosen by hand (a file name
-// under the artwork folder), or with name "" back to the fetched one. The
-// fetched image is left alone, and the change undoes like any edit.
+// under the artwork folder), with artwork.NoImage at none, or with name ""
+// back to the fetched one. The fetched image is left alone, and the change
+// undoes like any edit.
 func (e *Editor) SetImage(ctx context.Context, actor, kind string, id int64, name string) (*Result, error) {
 	if kind != KindArtist && kind != KindRelease {
 		return nil, invalid("bad_kind", "images can be set for artists and albums")
@@ -241,8 +244,11 @@ func (e *Editor) SetImage(ctx context.Context, actor, kind string, id int64, nam
 			return nil, ErrNoChange
 		}
 		summary := fmt.Sprintf("Set image of %s %d", kind, id)
-		if v == nil {
+		switch {
+		case v == nil:
 			summary = fmt.Sprintf("Reset image of %s %d", kind, id)
+		case name == artwork.NoImage:
+			summary = fmt.Sprintf("Remove image of %s %d", kind, id)
 		}
 		return &draft{scope: "entity", entityType: kind, entityID: id, summary: summary,
 			changes: []Change{{Table: kindTable[kind], Key: Row{"id": id},

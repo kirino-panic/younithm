@@ -304,6 +304,7 @@ export const endpoints = {
     return api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/image`, fd);
   },
   resetImage: (kind: string, id: number) => api.del<EditResult>(`/api/v1/admin/entities/${kind}/${id}/image`),
+  removeImage: (kind: string, id: number) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/image/remove`),
   candidates: (kind: string, q: string) =>
     api.get<{ items: MergeCandidate[] }>(`/api/v1/admin/entities/${kind}/candidates?q=${encodeURIComponent(q)}`),
   mergeCandidates: (kind: string, id: number, q: string) =>
