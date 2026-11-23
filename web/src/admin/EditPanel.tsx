@@ -427,6 +427,11 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
           </button>
           {akaOpen && (
             <div className="vlist" style={{ gap: 4, marginTop: 8 }}>
+              <div className="edit-head" aria-hidden>
+                <span className="grow" />
+                <span>Search only</span>
+                <span style={{ width: 32 }} />
+              </div>
               {names.map((n) => {
                 const ed = nameEdits[n.name];
                 const removed = ed === "removed";
@@ -441,7 +446,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                     {removed
                       ? <button className="btn btn-plain" onClick={() => set(undefined)}>Keep</button>
                       : <>
-                        <span className="muted" style={{ fontSize: 13, whiteSpace: "nowrap" }}>Search only</span>
                         <Switch checked={searchOnly} onChange={(v) => set(v)} label={`Use ${shown} in search only`} />
                         <button className="btn btn-icon btn-plain" aria-label={`Remove ${shown}`} onClick={() => set("removed")}><X size={15} /></button>
                       </>}
