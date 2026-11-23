@@ -35,6 +35,10 @@ func AddAlias(ctx context.Context, q DB, kind string, id int64, key string) (boo
 	if n > 0 {
 		return false, nil
 	}
+	// A name a person removed from this entity stays removed.
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM alias_rejection WHERE kind=? AND entity_id=? AND name=?`, kind, id, key).Scan(&n); err != nil || n > 0 {
+		return false, err
+	}
 	switch kind {
 	case kArtist:
 		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM artist WHERE id<>? AND lower(trim(name))=?`, id, key).Scan(&n)

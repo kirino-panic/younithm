@@ -86,6 +86,51 @@ func forgetEntity(ctx context.Context, tx Querier, kind string, from int64) ([]C
 	for _, l := range links {
 		cs = append(cs, Change{Table: "external_link", Key: Row{"id": l["id"]}, Before: l})
 	}
+	others, err := otherNameChanges(ctx, tx, kind, from, 0)
+	if err != nil {
+		return nil, err
+	}
+	return append(cs, others...), nil
+}
+
+// otherNameChanges moves `from`'s search names and removed names to `into`,
+// or drops them when into is 0. A name `into` already has is dropped.
+func otherNameChanges(ctx context.Context, tx Querier, kind string, from, into int64) ([]Change, error) {
+	var cs []Change
+	sns, err := queryRows(ctx, tx, `SELECT `+cols("search_name")+` FROM search_name WHERE kind=? AND entity_id=?`, kind, from)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range sns {
+		dup, err := queryRows(ctx, tx, `SELECT id FROM search_name WHERE kind=? AND entity_id=? AND name=?`, kind, into, r["name"])
+		if err != nil {
+			return nil, err
+		}
+		if into == 0 || len(dup) > 0 {
+			cs = append(cs, Change{Table: "search_name", Key: Row{"id": r["id"]}, Before: r})
+		} else {
+			cs = append(cs, Change{Table: "search_name", Key: Row{"id": r["id"]}, Before: Row{"entity_id": from}, After: Row{"entity_id": into}})
+		}
+	}
+	rej, err := queryRows(ctx, tx, `SELECT `+cols("alias_rejection")+` FROM alias_rejection WHERE kind=? AND entity_id=?`, kind, from)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rej {
+		key := Row{"kind": kind, "entity_id": from, "name": r["name"]}
+		cs = append(cs, Change{Table: "alias_rejection", Key: key, Before: r})
+		if into == 0 {
+			continue
+		}
+		dup, err := queryRows(ctx, tx, `SELECT 1 FROM alias_rejection WHERE kind=? AND entity_id=? AND name=?`, kind, into, r["name"])
+		if err != nil {
+			return nil, err
+		}
+		if len(dup) == 0 {
+			cs = append(cs, Change{Table: "alias_rejection", Key: Row{"kind": kind, "entity_id": into, "name": r["name"]},
+				After: Row{"kind": kind, "entity_id": into, "name": r["name"], "created_at": r["created_at"]}})
+		}
+	}
 	return cs, nil
 }
 
@@ -139,7 +184,11 @@ func redirectEntity(ctx context.Context, tx Querier, kind string, fromRow Row, f
 			cs = append(cs, Change{Table: "external_link", Key: Row{"id": l["id"]}, Before: Row{"entity_id": from}, After: Row{"entity_id": into}})
 		}
 	}
-	return cs, nil
+	others, err := otherNameChanges(ctx, tx, kind, from, into)
+	if err != nil {
+		return nil, err
+	}
+	return append(cs, others...), nil
 }
 
 func cols(table string) string {

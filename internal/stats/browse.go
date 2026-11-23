@@ -117,13 +117,10 @@ func nameMatches(entity, id string) string {
   OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + entity + `' AND al.entity_id = ` + id + ` AND al.raw_string LIKE ?6 ESCAPE '\')` + searchOnly(entity, id)
 }
 
-// searchOnly matches an artist's catalogue aliases, which only search uses.
+// searchOnly matches an entity's search-only names.
 func searchOnly(entity, id string) string {
-	if entity != "artist" {
-		return ""
-	}
 	return `
-  OR EXISTS (SELECT 1 FROM artist_search_name sn WHERE sn.artist_id = ` + id + ` AND sn.name LIKE ?6 ESCAPE '\')`
+  OR EXISTS (SELECT 1 FROM search_name sn WHERE sn.kind = '` + entity + `' AND sn.entity_id = ` + id + ` AND sn.name LIKE ?6 ESCAPE '\')`
 }
 
 func likePattern(q string) string {

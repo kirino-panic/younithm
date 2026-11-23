@@ -79,6 +79,11 @@ func (e *Editor) Split(ctx context.Context, actor string, id int64, in []CreditI
 			keys = append(keys, str(a["raw_string"]))
 			cs = append(cs, Change{Table: "alias", Key: Row{"id": a["id"]}, Before: a})
 		}
+		others, err := otherNameChanges(ctx, tx, KindArtist, id, 0)
+		if err != nil {
+			return nil, err
+		}
+		cs = append(cs, others...)
 		seen := map[string]bool{}
 		for _, k := range keys {
 			if k == "" || seen[k] {

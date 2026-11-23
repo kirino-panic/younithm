@@ -281,13 +281,15 @@ func TestNamePassImportsMusicBrainzAliasesForSearchOnly(t *testing.T) {
 	  ('artist',1,'musicbrainz','mb-band','lookup','auto'),
 	  ('artist',3,'musicbrainz','mb-shared','lookup','auto'),
 	  ('artist',4,'musicbrainz','mb-shared','lookup','auto')`)
+	exec(t, e.db, `INSERT INTO alias_rejection(kind,entity_id,name) VALUES ('artist',1,'removed by hand')`)
+	mb.aliases["mb-band"] = append(mb.aliases["mb-band"], providers.LocalName{Name: "Removed By Hand"})
 	ctx := context.Background()
 	if err := e.m.NamePass(ctx); err != nil {
 		t.Fatal(err)
 	}
 	names := func() string {
 		var got []string
-		rows, _ := e.db.Query(`SELECT name FROM artist_search_name WHERE artist_id=1 ORDER BY name`)
+		rows, _ := e.db.Query(`SELECT name FROM search_name WHERE kind='artist' AND entity_id=1 ORDER BY name`)
 		for rows.Next() {
 			var s string
 			rows.Scan(&s)
@@ -304,7 +306,7 @@ func TestNamePassImportsMusicBrainzAliasesForSearchOnly(t *testing.T) {
 	if n != 0 {
 		t.Fatal("a catalogue alias became a matching alias")
 	}
-	e.db.QueryRow(`SELECT COUNT(*) FROM artist_search_name WHERE name='nobody knows'`).Scan(&n)
+	e.db.QueryRow(`SELECT COUNT(*) FROM search_name WHERE name='nobody knows'`).Scan(&n)
 	if n != 0 {
 		t.Fatal("names were given for an id two artists hold")
 	}

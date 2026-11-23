@@ -91,8 +91,10 @@ func (d *deleter) dropWhere(table, where string, args ...any) error {
 // names drops what makes later listens find the entity: aliases, links and
 // link rejections.
 func (d *deleter) names(kind string, id int64) error {
-	if err := d.dropWhere("alias", `kind=? AND entity_id=?`, kind, id); err != nil {
-		return err
+	for _, t := range []string{"alias", "search_name", "alias_rejection"} {
+		if err := d.dropWhere(t, `kind=? AND entity_id=?`, kind, id); err != nil {
+			return err
+		}
 	}
 	if err := d.dropWhere("external_link", `entity_type=? AND entity_id=?`, kind, id); err != nil {
 		return err

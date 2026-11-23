@@ -159,7 +159,7 @@ func TestLibrarySearchesTrackAliases(t *testing.T) {
 func TestLibrarySearchesArtistSearchNames(t *testing.T) {
 	_, d := setup(t)
 	seed(t, d)
-	exec(t, d, `INSERT INTO artist_search_name(artist_id,name,provider,provider_id) VALUES (1,'ニーゴ','musicbrainz','mb-1')`)
+	exec(t, d, `INSERT INTO search_name(kind,entity_id,name,provider,provider_id) VALUES ('artist',1,'ニーゴ','musicbrainz','mb-1')`)
 	h := New(d)
 	r := chi.NewRouter()
 	h.MountLibrary(r, nil, nil)

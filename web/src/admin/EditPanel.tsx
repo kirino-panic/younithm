@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, RefreshCw, Star, Users, X } from "lucide-react";
-import { endpoints, ApiError, withBase, type Credit, type CreditIn, type MergeCandidate } from "../api";
+import { endpoints, ApiError, withBase, type AliasEntry, type Credit, type CreditIn, type MergeCandidate } from "../api";
 import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, useToast } from "../ui";
 
 type Kind = "recording" | "release" | "artist";
@@ -21,9 +21,9 @@ const MAX_IMAGE = 8 << 20;
 
 // Edits a track, album or artist: name, image, artists, albums and catalogue
 // links. Nothing is sent until Save; each part is its own logged, undoable edit.
-export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, noAlbum = false, releaseDate, links, raw = [], onClose, onSaved }: {
+export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, noAlbum = false, releaseDate, links, onClose, onSaved }: {
   kind: Kind; id: number; name: string; override?: string | null; releaseDate?: string | null; image?: string; imageCustom?: boolean; credits?: Credit[]; releases?: { id: number; title: string; primary: boolean }[]; noAlbum?: boolean;
-  links: Record<string, string>; raw?: string[]; onClose: () => void; onSaved: () => void;
+  links: Record<string, string>; onClose: () => void; onSaved: () => void;
 }) {
   const toast = useToast();
   const navigate = useNavigate();
@@ -40,6 +40,12 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   // The display name set by hand; empty means the naming order decides.
   const [title, setTitle] = useState(override || "");
   const [date, setDate] = useState(releaseDate || "");
+  // Other names as loaded, and what's changed: search only on or off, or removed.
+  const [names, setNames] = useState<AliasEntry[]>([]);
+  const [nameEdits, setNameEdits] = useState<Record<string, boolean | "removed">>({});
+  useEffect(() => {
+    endpoints.aliases(kind, id).then((r) => setNames(r.items), () => setNames([]));
+  }, [kind, id]);
   const startCredits = (credits || []).map((c) => ({ id: c.id, name: c.name, join: c.join_phrase || "", credited: c.credited_name || "" }));
   const [artists, setArtists] = useState<CreditRow[]>(startCredits);
   const [albums, setAlbums] = useState<AlbumRow[]>((releases || []).map((r) => ({ id: r.id, title: r.title, primary: r.primary })));
@@ -188,6 +194,11 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         if (prim?.id && !before.get(prim.id)?.primary) await endpoints.setPrimaryRelease(id, prim.id);
         if (albums.some((a) => a.removed || !a.id || !before.has(a.id)) || (prim && !before.get(prim.id!)?.primary)) done.push("albums");
       }
+      for (const [n, v] of Object.entries(nameEdits)) {
+        if (v === "removed") await endpoints.removeAlias(kind, id, n);
+        else await endpoints.setAliasSearchOnly(kind, id, n, v);
+        done.push("names");
+      }
       for (const [p, v] of Object.entries(linkEdits)) {
         if (v === null) await endpoints.removeLink(kind, id, p);
         else if (v.trim()) await endpoints.setLink(kind, id, v.trim());
@@ -205,9 +216,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
     }
   };
 
-  // Alias keys are "artist<US>title" match keys; show the ones that differ from
-  // the current name, readably.
-  const current = [(credits || []).map((c) => (c.credited_name || c.name) + (c.join_phrase || "")).join(""), name].filter(Boolean).join("\x1f").toLowerCase();
   // This entry as the merge summary shows it: what tells it apart from a look-alike.
   const creditLine = (credits || []).map((c, i, all) => (c.credited_name || c.name) + (i < all.length - 1 ? c.join_phrase || ", " : "")).join("");
   const primaryAlbum = (releases || []).find((r) => r.primary) || (releases || [])[0];
@@ -215,7 +223,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
     id, name: override || name, image,
     sub: [creditLine, kind === "recording" ? primaryAlbum?.title : ""].filter(Boolean).join(" · ") || undefined,
   };
-  const aka = raw.filter((r) => r.toLowerCase() !== current && r.toLowerCase() !== name.toLowerCase()).map((r) => r.split("\x1f").join(" – "));
 
   return (
     <Sheet wide title={`Edit ${LABELS[kind]}`} onClose={onClose}
@@ -409,13 +416,40 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         </div>
       </section>
 
-      {aka.length > 0 && (
+      {names.length > 0 && (
         <section>
           <button className="btn btn-plain" style={{ width: "100%", justifyContent: "space-between", padding: 0 }} onClick={() => setAkaOpen((o) => !o)} aria-expanded={akaOpen}>
-            <span className="section-label" style={{ margin: 0 }}>Also known as</span>
+            <span className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>
+              Also known as
+              <InfoTip label="About also known as" text="Other names this item goes by. Search-only names help you find it but never match a scrobble to it. Removed names aren't added back." />
+            </span>
             <ChevronRight size={16} style={{ transform: akaOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
           </button>
-          {akaOpen && <div className="muted vlist" style={{ fontSize: 13, gap: 4, marginTop: 8, overflowWrap: "anywhere" }}>{aka.map((r) => <span key={r}>{r}</span>)}</div>}
+          {akaOpen && (
+            <div className="vlist" style={{ gap: 4, marginTop: 8 }}>
+              {names.map((n) => {
+                const ed = nameEdits[n.name];
+                const removed = ed === "removed";
+                const searchOnly = typeof ed === "boolean" ? ed : n.search_only;
+                const shown = n.name.split("\x1f").join(" – ");
+                const set = (v: boolean | "removed" | undefined) => setNameEdits(({ [n.name]: _, ...rest }) =>
+                  v === undefined || v === n.search_only ? rest : { ...rest, [n.name]: v });
+                return (
+                  <div key={n.name} className={`edit-row${removed ? " removed" : ""}`}>
+                    <span className="grow truncate" title={shown}>{shown}</span>
+                    {n.source === "musicbrainz" && !removed && <Badge>MusicBrainz</Badge>}
+                    {removed
+                      ? <button className="btn btn-plain" onClick={() => set(undefined)}>Keep</button>
+                      : <>
+                        <span className="muted" style={{ fontSize: 13, whiteSpace: "nowrap" }}>Search only</span>
+                        <Switch checked={searchOnly} onChange={(v) => set(v)} label={`Use ${shown} in search only`} />
+                        <button className="btn btn-icon btn-plain" aria-label={`Remove ${shown}`} onClick={() => set("removed")}><X size={15} /></button>
+                      </>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
       {err && <p className="error-text">{err}</p>}

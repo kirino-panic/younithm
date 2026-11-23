@@ -28,7 +28,7 @@ func TestReleaseDateTakesAYearMonthOrDay(t *testing.T) {
 func TestArtistSearchFindsSearchNames(t *testing.T) {
 	e := newEnv(t)
 	a := e.artist("25時、ナイトコードで。")
-	e.exec(`INSERT INTO artist_search_name(artist_id,name,provider,provider_id) VALUES (?,'niigo','musicbrainz','mb-1')`, a)
+	e.exec(`INSERT INTO search_name(kind,entity_id,name,provider,provider_id) VALUES ('artist',?,'niigo','musicbrainz','mb-1')`, a)
 	hits, err := edit.Search(ctx, e.db, "artist", "niig", 8)
 	if err != nil || len(hits) != 1 || hits[0].ID != a {
 		t.Fatalf("search %+v %v", hits, err)

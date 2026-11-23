@@ -378,15 +378,15 @@ func (m *Manager) fillAliases(ctx context.Context, langs []string) error {
 }
 
 // importAliases reads every MusicBrainz alias of the artists holding a
-// MusicBrainz id into artist_search_name, once per id and artist, so searches
+// MusicBrainz id into search_name, once per id and artist, so searches
 // find the artist under any of those names. They are never used to match a
 // listen: alias lists hold short and shared names. Names whose id the artist
 // no longer holds (the link was removed, moved or merged away) are dropped
 // first, and an id two of our artists hold is skipped.
 func (m *Manager) importAliases(ctx context.Context) error {
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM artist_search_name WHERE NOT EXISTS (
-  SELECT 1 FROM external_link l WHERE l.entity_type='artist' AND l.entity_id=artist_search_name.artist_id
-    AND l.provider=artist_search_name.provider AND l.provider_id=artist_search_name.provider_id AND l.status IN ('confirmed','auto'))`); err != nil {
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM search_name WHERE provider <> '' AND NOT EXISTS (
+  SELECT 1 FROM external_link l WHERE l.entity_type=search_name.kind AND l.entity_id=search_name.entity_id
+    AND l.provider=search_name.provider AND l.provider_id=search_name.provider_id AND l.status IN ('confirmed','auto'))`); err != nil {
 		return err
 	}
 	mbp, ok := m.matcher.Providers.Get(providers.MusicBrainz)
@@ -441,8 +441,12 @@ LIMIT ?`, lk.MaxArtists())
 				if key == "" {
 					continue
 				}
-				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO artist_search_name (artist_id, name, provider, provider_id)
-					VALUES (?, ?, 'musicbrainz', ?)`, artist, key, pid); err != nil {
+				// A name a person removed, or made a matching alias of this
+				// artist, is not added (back) as a search name.
+				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO search_name (kind, entity_id, name, provider, provider_id)
+					SELECT 'artist', ?1, ?2, 'musicbrainz', ?3
+					WHERE NOT EXISTS (SELECT 1 FROM alias_rejection WHERE kind='artist' AND entity_id=?1 AND name=?2)
+					  AND NOT EXISTS (SELECT 1 FROM alias WHERE kind='artist' AND entity_id=?1 AND raw_string=?2)`, artist, key, pid); err != nil {
 					tx.Rollback()
 					return err
 				}

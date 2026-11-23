@@ -46,6 +46,10 @@ An album's release date takes a year, a year and month, or a full date (`2024`, 
 
 "Apply to all tracks on album" credits every track on an album to the album's artists. It is one edit with one undo, and tracks already credited that way are left out. Enrichment treats each track it changed as edited by hand, so a catalogue's credits don't replace it.
 
+## Other names
+
+"Also known as" lists an entity's other names. A matching name (`alias`) sends listens under it to the entity and finds it in search. A search-only name (`search_name`) only finds it in search; names read from MusicBrainz start that way. Switching a name to matching fails when another entry already goes by it. A removed name is recorded in `alias_rejection`, so no catalogue, listen or rescan adds it back. These edits are logged with the `alias` scope, which, like `link`, doesn't make a track count as edited by hand. Merges carry search names and removals to the kept entry; deletes and splits drop them.
+
 ## Bulk edit
 
 Filter by any of `ids`, `from`, `to`, `source`, `raw_artist`, `raw_title`, `raw_album`, `recording_id`, `release_id`, `artist_id`, `unmatched`. Set `recording_id`, `release_id`, `link_release` or `shift_seconds`. Preview first; apply must send the preview's `expected_matched`, or it returns `409 count_changed`. Up to 50,000 rows, one log entry, one undo.
@@ -67,6 +71,9 @@ Under `/api/v1/admin`.
 | `POST /scrobbles/bulk/apply` | `{filter, set, expected_matched}` (step-up) |
 | `PATCH /entities/{kind}/{id}` | Edit fields (`kind`: artist, recording, release); `drop_alias` skips keeping the old name |
 | `PUT /entities/{kind}/{id}/artists` | Replace credits |
+| `GET /entities/{kind}/{id}/aliases` | Other names, matching and search-only |
+| `PUT /entities/{kind}/{id}/aliases` | `{name, search_only}` |
+| `POST /entities/{kind}/{id}/aliases/remove` | `{name}`; it stays removed |
 | `POST /releases/{id}/apply-artists` | The album's artists onto every track on it |
 | `POST /entities/{kind}/{id}/refresh` | Look a recording, or every recording on a release, up again; fills what's missing, like lengths. Not an edit |
 | `PUT /entities/{kind}/{id}/links` | Link a provider URL |

@@ -292,13 +292,10 @@ func sharesBase(ctx context.Context, db Querier, kind string, id int64, bases []
 }
 
 // entityNames is every name the entity goes by, lowercased: stored, display,
-// searchNames matches an artist's search-only catalogue aliases.
+// searchNames matches an entity's search-only names.
 func searchNames(kind string, match func(string) string) string {
-	if kind != KindArtist {
-		return ""
-	}
 	return `
-  OR EXISTS (SELECT 1 FROM artist_search_name sn WHERE sn.artist_id = x.id AND ` + match("sn.name") + `)`
+  OR EXISTS (SELECT 1 FROM search_name sn WHERE sn.kind = '` + kind + `' AND sn.entity_id = x.id AND ` + match("replace(sn.name, char(31), ' ')") + `)`
 }
 
 // catalogue names and (for artists and albums) the spellings it was scrobbled as.

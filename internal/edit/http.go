@@ -41,6 +41,9 @@ import (
 //	PUT    /api/v1/admin/recordings/{id}/no-album        {no_album}
 //	POST   /api/v1/admin/entities/{kind}/{id}/image      multipart "file"   (artist, release)
 //	DELETE /api/v1/admin/entities/{kind}/{id}/image      back to the fetched image
+//	GET    /api/v1/admin/entities/{kind}/{id}/aliases    other names, matching and search-only
+//	PUT    /api/v1/admin/entities/{kind}/{id}/aliases    {name, search_only}
+//	POST   /api/v1/admin/entities/{kind}/{id}/aliases/remove {name}  stays removed
 //	POST   /api/v1/admin/releases/{id}/apply-artists     the album's artists onto every track
 //	POST   /api/v1/admin/entities/{kind}/{id}/refresh    look the track (or every album track) up again
 //
@@ -88,6 +91,9 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Put(p+"/recordings/{id}/primary-release", h.setPrimary)
 		r.Put(p+"/entities/{kind}/{id}/artists", h.setCredits)
 		r.Post(p+"/releases/{id}/apply-artists", h.applyReleaseArtists)
+		r.Get(p+"/entities/{kind}/{id}/aliases", h.listAliases)
+		r.Put(p+"/entities/{kind}/{id}/aliases", h.setAliasSearchOnly)
+		r.Post(p+"/entities/{kind}/{id}/aliases/remove", h.removeAlias)
 		r.Post(p+"/entities/{kind}/{id}/refresh", h.refresh)
 		r.Put(p+"/entities/{kind}/{id}/links", h.setLink)
 		r.Post(p+"/entities/{kind}/{id}/image", h.setImage)
@@ -445,6 +451,50 @@ func (h *handlers) applyReleaseArtists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.ed.ApplyReleaseArtists(r.Context(), actor(r), id)
+	done(w, res, err)
+}
+
+func (h *handlers) listAliases(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	items, err := Aliases(r.Context(), h.read, chi.URLParam(r, "kind"), id)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *handlers) setAliasSearchOnly(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Name       string `json:"name"`
+		SearchOnly bool   `json:"search_only"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.SetAliasSearchOnly(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Name, in.SearchOnly)
+	done(w, res, err)
+}
+
+func (h *handlers) removeAlias(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.RemoveAlias(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Name)
 	done(w, res, err)
 }
 

@@ -260,7 +260,7 @@ export function ArtistPage() {
           {a.appears_on.length > 0 && <AlbumGrid title="Appears on" albums={a.appears_on} />}
           <AllTracks artist={a.id} />
         </div>
-        {editing && <EditPanel kind="artist" id={a.id} name={a.name} override={a.display_name} image={a.image} imageCustom={a.image_custom} links={a.links} raw={a.aliases} onClose={() => setEditing(false)} onSaved={q.reload} />}
+        {editing && <EditPanel kind="artist" id={a.id} name={a.name} override={a.display_name} image={a.image} imageCustom={a.image_custom} links={a.links} onClose={() => setEditing(false)} onSaved={q.reload} />}
       </div>
     )}</Gate>
   );
@@ -463,7 +463,7 @@ export function TrackPage() {
             <ListeningHistory items={history.data.items} track={t} onChanged={() => { q.reload(); history.reload(); }} />
           )}
         </div>
-        {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} image={t.image} credits={t.artists} links={t.links} raw={t.aliases}
+        {editing && <EditPanel kind="recording" id={t.id} name={t.title} override={t.display_name} image={t.image} credits={t.artists} links={t.links}
           releases={t.releases.map((r) => ({ id: r.id, title: r.title, primary: r.primary }))} noAlbum={t.no_album}
           onClose={() => setEditing(false)} onSaved={() => { q.reload(); history.reload(); }} />}
       </div>

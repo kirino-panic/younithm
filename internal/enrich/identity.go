@@ -129,7 +129,7 @@ func fillCreditedNames(ctx context.Context, tx *sql.Tx, kind string, id int64, p
 		table, col = "release_artist", "release_id"
 	}
 	var edited int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE entity_type=? AND entity_id=? AND scope<>'link'`, kind, id).Scan(&edited); err != nil || edited > 0 {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM edit_log WHERE entity_type=? AND entity_id=? AND scope NOT IN ('link','alias')`, kind, id).Scan(&edited); err != nil || edited > 0 {
 		return err
 	}
 	// An artist credited more than once (ATLUS Sound Team, then the same
@@ -264,7 +264,7 @@ func handEdited(ctx context.Context, tx *sql.Tx, recID int64) (bool, error) {
 	// An album's artists applied to its tracks is logged on the album; the
 	// tracks it changed are in its rows.
 	err := tx.QueryRowContext(ctx, `
-SELECT COUNT(*) FROM edit_log WHERE (entity_type='recording' AND entity_id=?1 AND scope<>'link')
+SELECT COUNT(*) FROM edit_log WHERE (entity_type='recording' AND entity_id=?1 AND scope NOT IN ('link','alias'))
    OR (entity_type='release' AND scope='credits' AND EXISTS (
         SELECT 1 FROM json_each(after_json) j
         WHERE json_extract(j.value, '$.t')='recording_artist' AND json_extract(j.value, '$.k.recording_id')=?1))`, recID).Scan(&n)

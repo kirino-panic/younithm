@@ -180,6 +180,8 @@ export interface SecretMeta { name: string; set: boolean; hint?: string; updated
 
 // ---------- Endpoints ----------
 
+export interface AliasEntry { name: string; search_only: boolean; source?: string }
+
 export const endpoints = {
   me: () => api.get<Me>("/api/v1/auth/me"),
   login: (username: string, password: string) =>
@@ -274,6 +276,12 @@ export const endpoints = {
   setLanguages: (languages: string[]) => api.put<LanguagePrefs>("/api/v1/admin/languages", { languages }),
   search: (kind: "artist" | "recording" | "release", q: string) => api.get<{ items: SearchHit[] }>(`/api/v1/admin/search?kind=${kind}&q=${encodeURIComponent(q)}`),
   setCredits: (kind: string, id: number, artists: CreditIn[]) => api.put(`/api/v1/admin/entities/${kind}/${id}/artists`, { artists }),
+  // An entity's other names; search-only ones never match a listen.
+  aliases: (kind: string, id: number) => api.get<{ items: AliasEntry[] }>(`/api/v1/admin/entities/${kind}/${id}/aliases`),
+  setAliasSearchOnly: (kind: string, id: number, name: string, search_only: boolean) =>
+    api.put<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases`, { name, search_only }),
+  // Removed names stay removed: no catalogue or listen adds them back.
+  removeAlias: (kind: string, id: number, name: string) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases/remove`, { name }),
   // The album's artists onto every track on it, as one undoable edit.
   applyAlbumArtists: (rel: number) => api.post<EditResult>(`/api/v1/admin/releases/${rel}/apply-artists`),
   // Looks a track, or every track on an album, up in the catalogues again.
