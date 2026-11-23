@@ -374,7 +374,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             )}
             {kind === "release" && startCredits.length > 0 && (
               <div className="edit-row edit-apply">
-                <button className="btn" disabled={busy || creditsChanged} title={creditsChanged ? "Save first" : undefined} onClick={applyToTracks}><Users size={15} /> Apply to all tracks on album</button>
+                <button className="btn btn-block" disabled={busy || creditsChanged} title={creditsChanged ? "Save first" : undefined} onClick={applyToTracks}><Users size={15} /> Apply to all tracks on album</button>
               </div>
             )}
           </div>
@@ -473,7 +473,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             );
           })}
         </div>
-        {kind !== "artist" && <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={refresh}><RefreshCw size={15} /> Refresh metadata</button>}
+        {kind !== "artist" && <button className="btn btn-block" style={{ marginTop: 8 }} onClick={refresh}><RefreshCw size={15} /> Refresh metadata</button>}
       </section>
 
       <section>
