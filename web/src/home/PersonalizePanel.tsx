@@ -67,56 +67,55 @@ export function PersonalizePanel({ onClose }: { onClose: () => void }) {
         )}
       </section>
 
-      <section>
-        <div className="section-label">Background</div>
-        <Segmented full label="Background" value={th.bg.kind} onChange={(kind) => setBg({ kind })}
-          options={[{ value: "color", label: "Color" }, { value: "gradient", label: "Gradient" }, { value: "image", label: "Image" }]} />
-        <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-          {th.bg.kind !== "image" && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="color" aria-label="Color" value={th.bg.color} onChange={(e) => setBg({ color: e.target.value })} />
-              {th.bg.kind === "gradient" && <input type="color" aria-label="Second color" value={th.bg.color2} onChange={(e) => setBg({ color2: e.target.value })} />}
-            </div>
-          )}
-          {th.bg.kind === "image" && (
-            <>
+      <section className="vlist" style={{ gap: "var(--s4)" }}>
+        <div>
+          <div className="section-label">Background</div>
+          <Segmented full label="Background" value={th.bg.kind} onChange={(kind) => setBg({ kind })}
+            options={[{ value: "color", label: "Color" }, { value: "gradient", label: "Gradient" }, { value: "image", label: "Image" }]} />
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            {th.bg.kind !== "image" && (
               <div style={{ display: "flex", gap: 8 }}>
-                <input className="input" placeholder="https://…" value={th.bg.image.startsWith("data:") ? "" : th.bg.image} onChange={(e) => setBg({ image: e.target.value })} />
-                <label className="btn">Upload<input type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} /></label>
+                <input type="color" aria-label="Color" value={th.bg.color} onChange={(e) => setBg({ color: e.target.value })} />
+                {th.bg.kind === "gradient" && <input type="color" aria-label="Second color" value={th.bg.color2} onChange={(e) => setBg({ color2: e.target.value })} />}
               </div>
-              <Slider label="Blur" min={0} max={40} value={th.bg.blur} onChange={(blur) => setBg({ blur })} />
-              <Slider label="Dim" min={0} max={0.9} step={0.05} value={th.bg.dim} onChange={(dim) => setBg({ dim })} />
-            </>
-          )}
+            )}
+            {th.bg.kind === "image" && (
+              <>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input className="input" placeholder="https://…" value={th.bg.image.startsWith("data:") ? "" : th.bg.image} onChange={(e) => setBg({ image: e.target.value })} />
+                  <label className="btn">Upload<input type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} /></label>
+                </div>
+                <Slider label="Blur" min={0} max={40} value={th.bg.blur} onChange={(blur) => setBg({ blur })} />
+                <Slider label="Dim" min={0} max={0.9} step={0.05} value={th.bg.dim} onChange={(dim) => setBg({ dim })} />
+              </>
+            )}
+          </div>
         </div>
-      </section>
-
-      <section>
-        <div className="section-label">Accent</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button className="swatch swatch-auto" style={{ background: th.accent === AUTO ? page.accent : undefined }} title="Auto"
-            aria-label="Auto, matches the background" aria-pressed={th.accent === AUTO} onClick={() => set({ accent: AUTO })}>
-            <Sparkles size={14} />
-          </button>
-          {ACCENTS.map((c) => <button key={c} className="swatch" style={{ background: c }} aria-label={c} aria-pressed={th.accent === c} onClick={() => set({ accent: c })} />)}
-          <label className="swatch swatch-custom" title="Custom" aria-label="Custom accent" aria-pressed={custom}>
-            {custom && <i style={{ background: th.accent }} />}
-            <input type="color" value={page.accent} onChange={(e) => set({ accent: e.target.value })} />
-          </label>
+        <div>
+          <div className="section-label">Accent</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button className="swatch swatch-auto" style={{ background: th.accent === AUTO ? page.accent : undefined }} title="Auto"
+              aria-label="Auto, matches the background" aria-pressed={th.accent === AUTO} onClick={() => set({ accent: AUTO })}>
+              <Sparkles size={14} />
+            </button>
+            {ACCENTS.map((c) => <button key={c} className="swatch" style={{ background: c }} aria-label={c} aria-pressed={th.accent === c} onClick={() => set({ accent: c })} />)}
+            <label className="swatch swatch-custom" title="Custom" aria-label="Custom accent" aria-pressed={custom}>
+              {custom && <i style={{ background: th.accent }} />}
+              <input type="color" value={page.accent} onChange={(e) => set({ accent: e.target.value })} />
+            </label>
+          </div>
         </div>
-      </section>
-
-      <section>
-        <div className="section-label">Mode</div>
-        <Segmented full label="Mode" value={th.mode} onChange={(mode) => set({ mode })}
-          options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "auto", label: "Auto" }]} />
-      </section>
-
-      <section>
-        <div className="section-label">Tiles</div>
-        <Segmented full label="Tile style" value={th.tiles} onChange={(tiles) => set({ tiles })}
-          options={[{ value: "solid", label: "Solid" }, { value: "glass", label: "Glass" }, { value: "outline", label: "Outline" }, { value: "none", label: "None" }]} />
-        <div style={{ marginTop: 12 }}><Slider label="Corners" min={0} max={28} value={th.radius} onChange={(radius) => set({ radius })} /></div>
+        <div>
+          <div className="section-label">Mode</div>
+          <Segmented full label="Mode" value={th.mode} onChange={(mode) => set({ mode })}
+            options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "auto", label: "Auto" }]} />
+        </div>
+        <div>
+          <div className="section-label">Tiles</div>
+          <Segmented full label="Tile style" value={th.tiles} onChange={(tiles) => set({ tiles })}
+            options={[{ value: "solid", label: "Solid" }, { value: "glass", label: "Glass" }, { value: "outline", label: "Outline" }, { value: "none", label: "None" }]} />
+          <div style={{ marginTop: 12 }}><Slider label="Corners" min={0} max={28} value={th.radius} onChange={(radius) => set({ radius })} /></div>
+        </div>
       </section>
 
       <section>
