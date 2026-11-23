@@ -19,6 +19,9 @@ type NowPlayingTrack struct {
 	DurationMs    int64  `json:"duration_ms,omitempty"`
 	RecordingMBID string `json:"recording_mbid,omitempty"`
 	ReleaseMBID   string `json:"release_mbid,omitempty"`
+	// The library's track and album, when it already has them.
+	RecordingID int64 `json:"recording_id,omitempty"`
+	ReleaseID   int64 `json:"release_id,omitempty"`
 }
 
 type npEntry struct {
@@ -56,7 +59,9 @@ func NewNowPlaying() *NowPlaying {
 	return &NowPlaying{cur: map[int64]*npEntry{}, subs: map[chan struct{}]struct{}{}, now: time.Now}
 }
 
-func (n *NowPlaying) Set(user int64, t NowPlayingTrack, source string) {
+// Set makes t the user's current track. It returns when the entry started,
+// which SetImage takes to know it is still the same one.
+func (n *NowPlaying) Set(user int64, t NowPlayingTrack, source string) time.Time {
 	now := n.now()
 	ttl := nowPlayingDefaultTTL
 	if t.DurationMs > 0 {
@@ -66,6 +71,22 @@ func (n *NowPlaying) Set(user int64, t NowPlayingTrack, source string) {
 	n.cur[user] = &npEntry{t, source, now, now.Add(ttl)}
 	n.mu.Unlock()
 	n.notify()
+	return now
+}
+
+// SetImage gives the entry set at startedAt a cover found later. A newer
+// track, or one that already has a cover, is left alone.
+func (n *NowPlaying) SetImage(user int64, startedAt time.Time, image string) {
+	n.mu.Lock()
+	e := n.cur[user]
+	hit := e != nil && e.startedAt.Equal(startedAt) && e.track.Image == "" && image != ""
+	if hit {
+		e.track.Image = image
+	}
+	n.mu.Unlock()
+	if hit {
+		n.notify()
+	}
 }
 
 // ClearIfMatches clears now-playing when the finished listen is the current track.

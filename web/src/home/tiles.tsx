@@ -172,7 +172,7 @@ function NowPlayingTile({ compact }: { compact: boolean }) {
   }, []);
   const f = fav.data;
   const playing = np?.track;
-  const tr = playing ? { title: playing.title, sub: `${playing.artist}${playing.album && !compact ? ` · ${playing.album}` : ""}`, image: playing.image, cover: playing.album || playing.title, to: "" }
+  const tr = playing ? { title: playing.title, sub: `${playing.artist}${playing.album && !compact ? ` · ${playing.album}` : ""}`, image: playing.image, cover: playing.album || playing.title, to: playing.recording_id ? `/track/${playing.recording_id}` : "" }
     : f ? { title: f.name, sub: f.artist || "", image: f.image, cover: f.name, to: f.id ? `/track/${f.id}` : "" } : null;
   const pct = playing?.duration_ms && np?.progress_ms ? Math.min(100, (np.progress_ms / playing.duration_ms) * 100) : 0;
   return (

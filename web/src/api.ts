@@ -91,7 +91,7 @@ export interface Me {
 
 export interface NowPlaying {
   playing: boolean;
-  track?: { artist: string; title: string; album?: string; image?: string; duration_ms?: number };
+  track?: { artist: string; title: string; album?: string; image?: string; duration_ms?: number; recording_id?: number };
   source?: string;
   started_at?: string;
   progress_ms?: number;

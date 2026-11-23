@@ -139,7 +139,7 @@ func (h *Handler) submitListens(w http.ResponseWriter, r *http.Request) {
 			}
 			npTrack = NowPlayingTrack{Artist: artist, Title: title, Album: album, DurationMs: durMs,
 				RecordingMBID: strField(ai, "recording_mbid"), ReleaseMBID: strField(ai, "release_mbid")}
-			h.np.Set(uid, npTrack, clientName(ai))
+			h.setNowPlaying(r.Context(), uid, npTrack, clientName(ai), raw)
 			writeJSON(w, 200, map[string]any{"status": "ok", "accepted": 0, "duplicates": 0})
 			return
 		}

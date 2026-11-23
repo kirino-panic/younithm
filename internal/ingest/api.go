@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"younithm/internal/names"
 
@@ -55,6 +56,7 @@ type Handler struct {
 	admin       func(http.Handler) http.Handler
 	listGate    func(http.Handler) http.Handler
 	npGate      func(http.Handler) http.Handler
+	npFind      atomic.Pointer[NowPlayingFinders]
 }
 
 // New builds the handler. read and write may be the same *sql.DB.
@@ -105,6 +107,50 @@ func (h *Handler) SetFakeNowPlaying(enabled func() bool, pick func() (NowPlaying
 	h.np.mu.Unlock()
 }
 
+// NowPlayingFinders fill in a now-playing track from what the client sent
+// (raw is the listen as submitted).
+type NowPlayingFinders struct {
+	// Library returns t with the library's track, album and cover when it has
+	// them. It must not write: the track may never be scrobbled. Called before
+	// the track is shown, so it should be quick.
+	Library func(ctx context.Context, raw json.RawMessage, t NowPlayingTrack) NowPlayingTrack
+	// Cover returns a cover URL from the catalogues for a track the library
+	// has no cover for, or "". Called in the background; the cover is pushed
+	// to the page when it arrives.
+	Cover func(ctx context.Context, raw json.RawMessage, t NowPlayingTrack) string
+}
+
+// SetNowPlayingFinders sets how now-playing tracks are filled in.
+func (h *Handler) SetNowPlayingFinders(f NowPlayingFinders) { h.npFind.Store(&f) }
+
+const (
+	npLibraryTimeout = 2 * time.Second
+	npCoverTimeout   = 30 * time.Second
+)
+
+// setNowPlaying shows t at once, with what the library knows, and looks for a
+// cover in the background when it has none.
+func (h *Handler) setNowPlaying(ctx context.Context, user int64, t NowPlayingTrack, source string, raw json.RawMessage) {
+	f := h.npFind.Load()
+	if f != nil && f.Library != nil {
+		lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), npLibraryTimeout)
+		t = f.Library(lctx, raw, t)
+		cancel()
+	}
+	started := h.np.Set(user, t, source)
+	if f == nil || f.Cover == nil || t.Image != "" {
+		return
+	}
+	raw = append(json.RawMessage(nil), raw...)
+	go func() {
+		cctx, cancel := context.WithTimeout(context.Background(), npCoverTimeout)
+		defer cancel()
+		if img := f.Cover(cctx, raw, t); img != "" {
+			h.np.SetImage(user, started, img)
+		}
+	}()
+}
+
 // PokeNowPlaying tells now-playing streams to look again.
 func (h *Handler) PokeNowPlaying() { h.np.notify() }
 
@@ -138,7 +184,7 @@ func (h *Handler) streamNowPlaying(w http.ResponseWriter, r *http.Request) {
 		// progress_ms changes every call; compare on the identity of the state.
 		key := fmt.Sprint(v.Playing, v.StartedAt, v.ExpiresAt)
 		if v.Track != nil {
-			key += v.Track.Artist + v.Track.Title
+			key += v.Track.Artist + v.Track.Title + v.Track.Image // a cover can arrive later
 		}
 		if key == last {
 			return

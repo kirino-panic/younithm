@@ -151,6 +151,56 @@ func TestNowPlaying(t *testing.T) {
 	}
 }
 
+func TestNowPlayingFinders(t *testing.T) {
+	h := &Handler{np: NewNowPlaying()}
+	covers := map[string]chan string{"New": make(chan string), "First": make(chan string), "Second": make(chan string)}
+	var gotRaw string
+	h.SetNowPlayingFinders(NowPlayingFinders{
+		Library: func(_ context.Context, raw json.RawMessage, t NowPlayingTrack) NowPlayingTrack {
+			gotRaw = string(raw)
+			if t.Title == "Known" {
+				t.RecordingID, t.Image = 7, "/art/7"
+			}
+			return t
+		},
+		Cover: func(_ context.Context, _ json.RawMessage, t NowPlayingTrack) string { return <-covers[t.Title] },
+	})
+	ctx := context.Background()
+
+	// In the library: shown with its cover at once, no catalogue lookup.
+	h.setNowPlaying(ctx, 1, NowPlayingTrack{Artist: "A", Title: "Known"}, "x", json.RawMessage(`{"a":1}`))
+	if tr := h.np.Get(1).Track; tr.RecordingID != 7 || tr.Image != "/art/7" || gotRaw != `{"a":1}` {
+		t.Fatalf("library: %+v raw %s", tr, gotRaw)
+	}
+
+	// Not in the library: shown bare, the cover arrives later and is pushed.
+	ch, stop := h.np.Subscribe()
+	defer stop()
+	h.setNowPlaying(ctx, 1, NowPlayingTrack{Artist: "A", Title: "New"}, "x", nil)
+	<-ch
+	if tr := h.np.Get(1).Track; tr.Image != "" {
+		t.Fatalf("image before lookup: %+v", tr)
+	}
+	covers["New"] <- "https://cover"
+	<-ch
+	if tr := h.np.Get(1).Track; tr.Image != "https://cover" {
+		t.Fatalf("late cover: %+v", tr)
+	}
+
+	// A cover that arrives after the track changed is dropped.
+	h.setNowPlaying(ctx, 1, NowPlayingTrack{Artist: "A", Title: "First"}, "x", nil)
+	<-ch
+	h.np.now = func() time.Time { return time.Now().Add(time.Second) }
+	h.setNowPlaying(ctx, 1, NowPlayingTrack{Artist: "A", Title: "Second"}, "x", nil)
+	<-ch
+	covers["First"] <- "https://first" // first's lookup answers late
+	covers["Second"] <- "https://second"
+	<-ch
+	if tr := h.np.Get(1).Track; tr.Title != "Second" || tr.Image != "https://second" {
+		t.Fatalf("stale cover: %+v", tr)
+	}
+}
+
 func TestNowPlayingExpiry(t *testing.T) {
 	n := NewNowPlaying()
 	now := time.Now()

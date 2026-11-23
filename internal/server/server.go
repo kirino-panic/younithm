@@ -330,6 +330,38 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 	artDir := filepath.Join(filepath.Dir(pools.Path), "artwork")
 	art := artwork.New(pools.Read, pools.Write, artDir, reg, artwork.Options{})
 	go art.Run(o.bg)
+	// Now playing: the library's track and cover when it has them (read only:
+	// the track may be skipped before it is scrobbled), else a cover found on
+	// the catalogues by the ids the client sent.
+	npInput := func(raw json.RawMessage, t ingest.NowPlayingTrack) identity.Input {
+		return identity.FromBasics(raw, identity.Basics{Artist: t.Artist, Title: t.Title, Album: t.Album, DurationMs: t.DurationMs,
+			RecordingMBID: t.RecordingMBID, ReleaseMBID: t.ReleaseMBID})
+	}
+	remoteArt := &artwork.Remote{Registry: reg}
+	ing.SetNowPlayingFinders(ingest.NowPlayingFinders{
+		Library: func(ctx context.Context, raw json.RawMessage, t ingest.NowPlayingTrack) ingest.NowPlayingTrack {
+			rec, rel, err := identity.Lookup(ctx, pools.Read, npInput(raw, t))
+			if err != nil {
+				log.Printf("now playing: lookup: %v", err)
+				return t
+			}
+			t.RecordingID, t.ReleaseID = rec, rel
+			if rel != 0 {
+				var art sql.NullString
+				if err := pools.Read.QueryRowContext(ctx, `SELECT `+artwork.ReleaseImage("rel")+` FROM release rel WHERE id = ?`, rel).Scan(&art); err == nil {
+					t.Image = artwork.URL(artwork.KindRelease, rel, art.String)
+				}
+			}
+			return t
+		},
+		Cover: func(ctx context.Context, raw json.RawMessage, t ingest.NowPlayingTrack) string {
+			in := npInput(raw, t)
+			return remoteArt.Find(ctx, artwork.RemoteIDs{
+				SpotifyAlbum: in.SpotifyAlbumID, AppleAlbum: in.AppleAlbumID, ReleaseMBID: in.ReleaseMBID,
+				SpotifyTrack: in.SpotifyTrackID, AppleSong: in.AppleSongID,
+			})
+		},
+	})
 	r.Get("/api/v1/art/{kind}/{id}", artwork.Handler{Read: pools.Read, Dir: artDir}.ServeHTTP)
 	if cfg.MusicBrainzContact == "" {
 		log.Printf("enrich: MUSICBRAINZ_CONTACT not set; MusicBrainz matching stays off until a contact is saved (Spotify and Apple run once their keys are entered)")
