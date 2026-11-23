@@ -326,6 +326,46 @@ type day struct {
 	Plays int64  `json:"plays"`
 }
 
+// perDay counts plays per calendar day in the time zone tz (an IANA name such
+// as the browser's, so "today" is the viewer's today); UTC when tz is empty or
+// unknown.
+func (h *Handler) perDay(ctx context.Context, from, tz string) ([]day, error) {
+	loc, err := time.LoadLocation(tz)
+	if tz == "" || err != nil {
+		loc = time.UTC
+	}
+	// Grouped by UTC hour in SQL, then each hour moved to its local day: far
+	// fewer rows than one per play. Zones off by a part hour (India, Nepal)
+	// get each hour by its local start, so a play may land a day early or late
+	// only in the half hour around midnight.
+	rows, err := h.read.QueryContext(ctx, `
+SELECT substr(played_at, 1, 13), COUNT(*) FROM scrobble
+WHERE user_id = 1 AND played_at >= ? GROUP BY 1 ORDER BY 1`, from)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	days := []day{}
+	for rows.Next() {
+		var hour string
+		var n int64
+		if err := rows.Scan(&hour, &n); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse("2006-01-02T15", hour)
+		if err != nil {
+			continue
+		}
+		d := t.In(loc).Format("2006-01-02")
+		if k := len(days); k > 0 && days[k-1].Date == d {
+			days[k-1].Plays += n
+		} else {
+			days = append(days, day{d, n})
+		}
+	}
+	return days, rows.Err()
+}
+
 func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 	from, ok := h.rangeStart(r.URL.Query().Get("range"))
 	if !ok {
@@ -349,31 +389,12 @@ WHERE s.user_id = 1 AND s.played_at >= ?`, from).Scan(&artists)
 	}
 	var days []day
 	if err == nil {
-		var rows *sql.Rows
-		rows, err = h.read.QueryContext(ctx, `
-SELECT substr(played_at, 1, 10), COUNT(*) FROM scrobble
-WHERE user_id = 1 AND played_at >= ? GROUP BY 1 ORDER BY 1`, from)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var d day
-				if err = rows.Scan(&d.Date, &d.Plays); err != nil {
-					break
-				}
-				days = append(days, d)
-			}
-			if err == nil {
-				err = rows.Err()
-			}
-		}
+		days, err = h.perDay(ctx, from, r.URL.Query().Get("tz"))
 	}
 	if err != nil {
 		log.Printf("stats: summary: %v", err)
 		apiError(w, 500, "internal error")
 		return
-	}
-	if days == nil {
-		days = []day{}
 	}
 	writeJSON(w, 200, map[string]any{
 		"range": rangeName(r), "plays": plays, "distinct_tracks": tracks,

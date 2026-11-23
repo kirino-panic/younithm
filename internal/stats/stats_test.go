@@ -145,3 +145,24 @@ func TestTopLatestWeek(t *testing.T) {
 		t.Fatalf("latest_week: %+v", out.Items)
 	}
 }
+
+func TestPerDayUsesTheViewersTimeZone(t *testing.T) {
+	h, d := setup(t) // "now" is 2026-06-15 12:00 UTC
+	ins := `INSERT INTO scrobble(played_at,raw_artist,raw_title) VALUES (?,?,?)`
+	exec(t, d, ins, "2026-06-14T18:00:00Z", "A", "x") // Los Angeles: June 14, 11:00
+	exec(t, d, ins, "2026-06-15T02:30:00Z", "A", "y") // Los Angeles: June 14, 19:30
+	exec(t, d, ins, "2026-06-15T08:00:00Z", "A", "z") // Los Angeles: June 15, 01:00
+	var out struct {
+		PerDay []day `json:"per_day"`
+	}
+	get(t, h, "/stats?range=week&tz=America/Los_Angeles", &out)
+	if len(out.PerDay) != 2 || out.PerDay[0] != (day{"2026-06-14", 2}) || out.PerDay[1] != (day{"2026-06-15", 1}) {
+		t.Fatalf("Los Angeles: %+v", out.PerDay)
+	}
+	for _, tz := range []string{"", "Not/AZone"} { // UTC
+		get(t, h, "/stats?range=week&tz="+tz, &out)
+		if len(out.PerDay) != 2 || out.PerDay[0] != (day{"2026-06-14", 1}) || out.PerDay[1] != (day{"2026-06-15", 2}) {
+			t.Fatalf("tz %q: %+v", tz, out.PerDay)
+		}
+	}
+}

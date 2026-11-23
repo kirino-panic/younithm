@@ -258,14 +258,7 @@ function ActivityTile() {
   }, []);
   const cells = useMemo(() => buildHeat(data?.per_day || [], weeks), [data, weeks]);
   const max = Math.max(1, ...cells.map((c) => c.plays));
-  const streak = useMemo(() => {
-    let s = 0;
-    for (let i = cells.length - 1; i >= 0 && !cells[i].future; i--) {
-      if (cells[i].plays > 0) s++;
-      else if (s > 0 || i < cells.length - 1) break;
-    }
-    return s;
-  }, [cells]);
+  const streak = useMemo(() => streakDays(data?.per_day || []), [data]);
   return (
     <>
       <Title end={<span className="faint num" style={{ fontWeight: 500 }}>Streak {streak}</span>}>Activity</Title>
@@ -283,6 +276,25 @@ function ActivityTile() {
   );
 }
 
+// localDay is a date as YYYY-MM-DD in the viewer's time zone (toISOString
+// would give the UTC date, a day off east of UTC).
+const localDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// streakDays counts the days in a row with plays, up to today. A today with no
+// plays yet does not break it: it counts on from yesterday.
+function streakDays(perDay: { date: string; plays: number }[], today = new Date()) {
+  const played = new Set(perDay.filter((d) => d.plays > 0).map((d) => d.date));
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (!played.has(localDay(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (played.has(localDay(d))) {
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
 function buildHeat(perDay: { date: string; plays: number }[], weeks: number) {
   const map = new Map(perDay.map((d) => [d.date, d.plays]));
   const today = new Date();
@@ -291,7 +303,7 @@ function buildHeat(perDay: { date: string; plays: number }[], weeks: number) {
   start.setDate(start.getDate() - (weeks - 1) * 7 - start.getDay());
   const out: { date: string; plays: number; future: boolean }[] = [];
   for (let d = new Date(start); out.length < weeks * 7; d.setDate(d.getDate() + 1)) {
-    const key = d.toISOString().slice(0, 10);
+    const key = localDay(d);
     out.push({ date: key, plays: map.get(key) || 0, future: d > today });
   }
   return out;

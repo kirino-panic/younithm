@@ -209,7 +209,8 @@ export const endpoints = {
   library: (kind: LibraryKind, sort: LibrarySort, q: string, offset = 0) =>
     api.get<{ total: number; items: LibraryItem[] }>(`/api/v1/library/${kind}?sort=${sort}&limit=60&offset=${offset}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   site: () => api.get<{ sections: Record<string, boolean> }>("/api/v1/site"),
-  stats: (range: Range) => api.get<Stats>(`/api/v1/stats?range=${range}`),
+  // tz: per_day is counted in the viewer's days, so "today" is theirs.
+  stats: (range: Range) => api.get<Stats>(`/api/v1/stats?range=${range}&tz=${encodeURIComponent(viewerTimeZone())}`),
 
   page: () => api.get<{ page: unknown }>("/api/v1/site/page"),
   savePage: (page: unknown) => api.put("/api/v1/admin/site/page", { page }),
@@ -333,4 +334,9 @@ export async function withStepUp<T>(fn: () => Promise<T>, ask: () => Promise<str
     }
     throw e;
   }
+}
+
+/** The browser's IANA time zone, or "" when it cannot tell. */
+export function viewerTimeZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
 }
