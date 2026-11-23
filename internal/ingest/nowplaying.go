@@ -29,6 +29,16 @@ type npEntry struct {
 	source    string
 	startedAt time.Time
 	expiresAt time.Time
+	found     FoundCover // the catalogue cover SetImage gave it, kept for the scrobble
+}
+
+// FoundCover is a cover found on the catalogues for a now-playing track.
+type FoundCover struct {
+	URL string
+	// Album is the catalogue album's title when the cover was found through a
+	// track id (the track's album there, maybe another edition); "" when it
+	// came from an album id the listen named.
+	Album string
 }
 
 // NowPlayingView is the JSON shape of GET /api/v1/now-playing.
@@ -71,7 +81,7 @@ func (n *NowPlaying) Set(user int64, t NowPlayingTrack, source string) time.Time
 		ttl = time.Duration(t.DurationMs)*time.Millisecond + nowPlayingGrace
 	}
 	n.mu.Lock()
-	n.cur[user] = &npEntry{t, source, now, now.Add(ttl)}
+	n.cur[user] = &npEntry{track: t, source: source, startedAt: now, expiresAt: now.Add(ttl)}
 	n.mu.Unlock()
 	n.notify()
 	return now
@@ -79,12 +89,12 @@ func (n *NowPlaying) Set(user int64, t NowPlayingTrack, source string) time.Time
 
 // SetImage gives the entry set at startedAt a cover found later. A newer
 // track, or one that already has a cover, is left alone.
-func (n *NowPlaying) SetImage(user int64, startedAt time.Time, image string) {
+func (n *NowPlaying) SetImage(user int64, startedAt time.Time, c FoundCover) {
 	n.mu.Lock()
 	e := n.cur[user]
-	hit := e != nil && e.startedAt.Equal(startedAt) && e.track.Image == "" && image != ""
+	hit := e != nil && e.startedAt.Equal(startedAt) && e.track.Image == "" && c.URL != ""
 	if hit {
-		e.track.Image = image
+		e.track.Image, e.found = c.URL, c
 	}
 	n.mu.Unlock()
 	if hit {
@@ -92,18 +102,22 @@ func (n *NowPlaying) SetImage(user int64, startedAt time.Time, image string) {
 	}
 }
 
-// ClearIfMatches clears now-playing when the finished listen is the current track.
-func (n *NowPlaying) ClearIfMatches(user int64, artist, title string) {
+// ClearIfMatches clears now-playing when the finished listen is the current
+// track, and returns the catalogue cover that track was shown with, if any.
+func (n *NowPlaying) ClearIfMatches(user int64, artist, title string) FoundCover {
 	n.mu.Lock()
 	e := n.cur[user]
 	hit := e != nil && Normalize(e.track.Artist) == Normalize(artist) && Normalize(e.track.Title) == Normalize(title)
+	var found FoundCover
 	if hit {
+		found = e.found
 		delete(n.cur, user)
 	}
 	n.mu.Unlock()
 	if hit {
 		n.notify()
 	}
+	return found
 }
 
 // fallbackTrack is shown by the debug switch when the library has no tracks.
@@ -126,7 +140,7 @@ func (n *NowPlaying) fakeEntry(now time.Time) *npEntry {
 		if t.DurationMs < 30_000 || t.DurationMs > 10*60_000 {
 			t.DurationMs = fallbackTrack.DurationMs
 		}
-		n.fakeCur = &npEntry{t, "debug", now, now.Add(time.Duration(t.DurationMs) * time.Millisecond)}
+		n.fakeCur = &npEntry{track: t, source: "debug", startedAt: now, expiresAt: now.Add(time.Duration(t.DurationMs) * time.Millisecond)}
 	}
 	return n.fakeCur
 }

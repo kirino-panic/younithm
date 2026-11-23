@@ -297,6 +297,27 @@ func (w *Worker) fetch(ctx context.Context, kind string, id int64) (string, erro
 	return "none", nil
 }
 
+// Keep downloads the cover at url and sets it on a release that has none, as
+// when a now-playing cover is kept for the album it was scrobbled on. It
+// reports whether it set one.
+func (w *Worker) Keep(ctx context.Context, releaseID int64, url string) (bool, error) {
+	var has bool
+	if err := w.Read.QueryRowContext(ctx, `SELECT COALESCE(artwork_path, '') <> '' FROM release WHERE id = ?`, releaseID).Scan(&has); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if has {
+		return false, nil
+	}
+	data, ext, err := w.download(ctx, url)
+	if err != nil {
+		return false, err
+	}
+	return w.store(ctx, KindRelease, releaseID, data, ext)
+}
+
 // pick chooses the image to download: the smallest at least wantWidth wide,
 // else the widest. Refs without a size (the first is the best) rank as given.
 func pick(refs []providers.ImageRef) (providers.ImageRef, bool) {

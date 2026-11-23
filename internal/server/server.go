@@ -355,12 +355,28 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 			}
 			return t
 		},
-		Cover: func(ctx context.Context, raw json.RawMessage, t ingest.NowPlayingTrack) string {
+		Cover: func(ctx context.Context, raw json.RawMessage, t ingest.NowPlayingTrack) ingest.FoundCover {
 			in := npInput(raw, t)
-			return remoteArt.Find(ctx, artwork.RemoteIDs{
+			f := remoteArt.Find(ctx, artwork.RemoteIDs{
 				SpotifyAlbum: in.SpotifyAlbumID, AppleAlbum: in.AppleAlbumID, ReleaseMBID: in.ReleaseMBID,
 				SpotifyTrack: in.SpotifyTrackID, AppleSong: in.AppleSongID,
 			})
+			return ingest.FoundCover{URL: f.URL, Album: f.Album}
+		},
+		// On scrobble the shown cover becomes the album's, when it has none. One
+		// found through a track id is the track's album on that catalogue, maybe
+		// another edition, so its title must match.
+		Keep: func(ctx context.Context, rel int64, c ingest.FoundCover) {
+			if c.Album != "" {
+				var title string
+				if err := pools.Read.QueryRowContext(ctx, `SELECT title FROM release WHERE id = ?`, rel).Scan(&title); err != nil ||
+					identity.Norm(title) != identity.Norm(c.Album) {
+					return
+				}
+			}
+			if _, err := art.Keep(ctx, rel, c.URL); err != nil {
+				log.Printf("now playing: keep cover for release %d: %v", rel, err)
+			}
 		},
 	})
 	r.Get("/api/v1/art/{kind}/{id}", artwork.Handler{Read: pools.Read, Dir: artDir}.ServeHTTP)

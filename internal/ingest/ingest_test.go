@@ -154,7 +154,7 @@ func TestNowPlaying(t *testing.T) {
 
 func TestNowPlayingFinders(t *testing.T) {
 	h := &Handler{np: NewNowPlaying()}
-	covers := map[string]chan string{"New": make(chan string), "First": make(chan string), "Second": make(chan string)}
+	covers := map[string]chan FoundCover{"New": make(chan FoundCover), "First": make(chan FoundCover), "Second": make(chan FoundCover)}
 	var gotRaw string
 	h.SetNowPlayingFinders(NowPlayingFinders{
 		Library: func(_ context.Context, raw json.RawMessage, t NowPlayingTrack) NowPlayingTrack {
@@ -164,7 +164,7 @@ func TestNowPlayingFinders(t *testing.T) {
 			}
 			return t
 		},
-		Cover: func(_ context.Context, _ json.RawMessage, t NowPlayingTrack) string { return <-covers[t.Title] },
+		Cover: func(_ context.Context, _ json.RawMessage, t NowPlayingTrack) FoundCover { return <-covers[t.Title] },
 	})
 	ctx := context.Background()
 
@@ -182,7 +182,7 @@ func TestNowPlayingFinders(t *testing.T) {
 	if tr := h.np.Get(1).Track; tr.Image != "" {
 		t.Fatalf("image before lookup: %+v", tr)
 	}
-	covers["New"] <- "https://cover"
+	covers["New"] <- FoundCover{URL: "https://cover"}
 	<-ch
 	if tr := h.np.Get(1).Track; tr.Image != "https://cover" {
 		t.Fatalf("late cover: %+v", tr)
@@ -194,11 +194,74 @@ func TestNowPlayingFinders(t *testing.T) {
 	h.np.now = func() time.Time { return time.Now().Add(time.Second) }
 	h.setNowPlaying(ctx, 1, NowPlayingTrack{Artist: "A", Title: "Second"}, "x", nil)
 	<-ch
-	covers["First"] <- "https://first" // first's lookup answers late
-	covers["Second"] <- "https://second"
+	covers["First"] <- FoundCover{URL: "https://first"} // first's lookup answers late
+	covers["Second"] <- FoundCover{URL: "https://second"}
 	<-ch
 	if tr := h.np.Get(1).Track; tr.Title != "Second" || tr.Image != "https://second" {
 		t.Fatalf("stale cover: %+v", tr)
+	}
+}
+
+func TestScrobbleKeepsFoundCover(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "cfg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec(`INSERT INTO recording(id,title) VALUES (3,'T'); INSERT INTO release(id,title) VALUES (9,'Alb')`); err != nil {
+		t.Fatal(err)
+	}
+	h := New(d, d, Options{Auth: StaticTokenAuth{Token: "tok"},
+		Identify: func(context.Context, *sql.Tx, NewScrobble) (int64, int64, error) { return 3, 9, nil }})
+	type kept struct {
+		rel int64
+		c   FoundCover
+	}
+	got := make(chan kept, 1)
+	h.SetNowPlayingFinders(NowPlayingFinders{
+		Cover: func(context.Context, json.RawMessage, NowPlayingTrack) FoundCover {
+			return FoundCover{URL: "https://cover", Album: "Alb"}
+		},
+		Keep: func(_ context.Context, rel int64, c FoundCover) { got <- kept{rel, c} },
+	})
+	r := chi.NewRouter()
+	h.MountRoot(r)
+	ch, stop := h.np.Subscribe()
+	defer stop()
+	np := `{"listen_type":"playing_now","payload":[{"track_metadata":{"artist_name":"A","track_name":"T"}}]}`
+	if w := do(r, "POST", "/1/submit-listens", np, "tok"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	for h.np.Get(1).Track.Image == "" {
+		<-ch
+	}
+	if w := do(r, "POST", "/1/submit-listens", single(time.Now().Unix(), "a", "t"), "tok"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	select {
+	case k := <-got:
+		if k.rel != 9 || k.c != (FoundCover{URL: "https://cover", Album: "Alb"}) {
+			t.Fatalf("kept %+v", k)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cover not kept")
+	}
+
+	// Another track's scrobble keeps nothing.
+	if w := do(r, "POST", "/1/submit-listens", np, "tok"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	for h.np.Get(1).Track.Image == "" {
+		<-ch
+	}
+	do(r, "POST", "/1/submit-listens", single(time.Now().Unix()-600, "A", "Other"), "tok")
+	select {
+	case k := <-got:
+		t.Fatalf("kept for another track: %+v", k)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

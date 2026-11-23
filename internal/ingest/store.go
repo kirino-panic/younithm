@@ -54,6 +54,12 @@ func Normalize(s string) string {
 // Insert stores listens in one transaction, skipping duplicates
 // (same user, played_at within tolerance, same normalized artist+title).
 func (s *Store) Insert(ctx context.Context, ls []NewScrobble) (accepted, duplicates int, err error) {
+	return s.insert(ctx, ls, nil)
+}
+
+// insert is Insert that also sets rels[i] to the album listen i was stored
+// on (0 for none or a duplicate), when rels is given.
+func (s *Store) insert(ctx context.Context, ls []NewScrobble, rels []int64) (accepted, duplicates int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tol := s.DedupeTolerance
@@ -62,7 +68,7 @@ func (s *Store) Insert(ctx context.Context, ls []NewScrobble) (accepted, duplica
 		return 0, 0, err
 	}
 	defer tx.Rollback()
-	for _, l := range ls {
+	for i, l := range ls {
 		if l.UserID == 0 {
 			l.UserID = 1
 		}
@@ -113,6 +119,9 @@ func (s *Store) Insert(ctx context.Context, ls []NewScrobble) (accepted, duplica
 				recID = r
 				if rel != 0 {
 					relID = rel
+					if rels != nil {
+						rels[i] = rel
+					}
 				}
 			}
 		}

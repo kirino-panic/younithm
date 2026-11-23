@@ -16,7 +16,7 @@ type withTracks struct {
 
 func (f *withTracks) GetTrack(_ context.Context, id string) (*providers.Track, error) {
 	if a, ok := f.albumOf[id]; ok {
-		return &providers.Track{ProviderID: id, Releases: []providers.ReleaseRef{{ProviderID: a}}}, nil
+		return &providers.Track{ProviderID: id, Releases: []providers.ReleaseRef{{ProviderID: a, Title: "Album"}}}, nil
 	}
 	return nil, providers.ErrNotFound
 }
@@ -35,14 +35,14 @@ func TestRemoteTriesAlbumIDsThenTrackIDs(t *testing.T) {
 	r := &Remote{Registry: registry(sp, mb)}
 	ctx := context.Background()
 
-	if u := r.Find(ctx, RemoteIDs{SpotifyAlbum: "missing", ReleaseMBID: "rel"}); u != "mb" {
-		t.Fatalf("album ids: %q", u)
+	if f := r.Find(ctx, RemoteIDs{SpotifyAlbum: "missing", ReleaseMBID: "rel"}); f != (Found{URL: "mb"}) {
+		t.Fatalf("album ids: %+v", f)
 	}
-	if u := r.Find(ctx, RemoteIDs{SpotifyTrack: "trk"}); u != "sp" {
-		t.Fatalf("track id: %q", u)
+	if f := r.Find(ctx, RemoteIDs{SpotifyTrack: "trk"}); f != (Found{URL: "sp", Album: "Album"}) {
+		t.Fatalf("track id: %+v", f)
 	}
-	if u := r.Find(ctx, RemoteIDs{}); u != "" {
-		t.Fatalf("no ids: %q", u)
+	if f := r.Find(ctx, RemoteIDs{}); f.URL != "" {
+		t.Fatalf("no ids: %+v", f)
 	}
 	// Remembered: asking again makes no request.
 	n := mb.release.Load()

@@ -114,10 +114,13 @@ type NowPlayingFinders struct {
 	// them. It must not write: the track may never be scrobbled. Called before
 	// the track is shown, so it should be quick.
 	Library func(ctx context.Context, raw json.RawMessage, t NowPlayingTrack) NowPlayingTrack
-	// Cover returns a cover URL from the catalogues for a track the library
-	// has no cover for, or "". Called in the background; the cover is pushed
-	// to the page when it arrives.
-	Cover func(ctx context.Context, raw json.RawMessage, t NowPlayingTrack) string
+	// Cover returns a cover from the catalogues for a track the library has
+	// no cover for (URL "" when none). Called in the background; the cover is
+	// pushed to the page when it arrives.
+	Cover func(ctx context.Context, raw json.RawMessage, t NowPlayingTrack) FoundCover
+	// Keep saves a found cover to the album the track was scrobbled on, when
+	// that album has none. Called in the background.
+	Keep func(ctx context.Context, releaseID int64, c FoundCover)
 }
 
 // SetNowPlayingFinders sets how now-playing tracks are filled in.
@@ -145,9 +148,22 @@ func (h *Handler) setNowPlaying(ctx context.Context, user int64, t NowPlayingTra
 	go func() {
 		cctx, cancel := context.WithTimeout(context.Background(), npCoverTimeout)
 		defer cancel()
-		if img := f.Cover(cctx, raw, t); img != "" {
-			h.np.SetImage(user, started, img)
+		if c := f.Cover(cctx, raw, t); c.URL != "" {
+			h.np.SetImage(user, started, c)
 		}
+	}()
+}
+
+// keepCover saves the cover a scrobbled track was shown with to its album.
+func (h *Handler) keepCover(releaseID int64, c FoundCover) {
+	f := h.npFind.Load()
+	if f == nil || f.Keep == nil || releaseID == 0 || c.URL == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), npCoverTimeout)
+		defer cancel()
+		f.Keep(ctx, releaseID, c)
 	}()
 }
 

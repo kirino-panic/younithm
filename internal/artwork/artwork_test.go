@@ -164,6 +164,29 @@ func TestNeverOverwritesAndNeedsALink(t *testing.T) {
 	}
 }
 
+func TestKeepSetsOnlyAnEmptyCover(t *testing.T) {
+	e := setup(t)
+	e.seed(t)
+	ctx := context.Background()
+	if ok, err := e.w.Keep(ctx, 1, e.srv.URL+"/page.html"); ok || err == nil {
+		t.Fatalf("not an image: %v %v", ok, err)
+	}
+	if ok, err := e.w.Keep(ctx, 1, e.srv.URL+"/cover.png"); !ok || err != nil {
+		t.Fatalf("keep: %v %v", ok, err)
+	}
+	path := e.str(t, `SELECT artwork_path FROM release WHERE id=1`)
+	if path == "" {
+		t.Fatal("no artwork stored")
+	}
+	n := e.hit.Load()
+	if ok, err := e.w.Keep(ctx, 1, e.srv.URL+"/cover.png"); ok || err != nil || e.hit.Load() != n {
+		t.Fatalf("second keep: %v %v, downloaded again: %v", ok, err, e.hit.Load() != n)
+	}
+	if ok, err := e.w.Keep(ctx, 99, e.srv.URL+"/cover.png"); ok || err != nil {
+		t.Fatalf("missing release: %v %v", ok, err)
+	}
+}
+
 func TestMissesAreRemembered(t *testing.T) {
 	f := &fake{name: "spotify"}
 	e := setup(t, f)

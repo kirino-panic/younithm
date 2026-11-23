@@ -24,6 +24,13 @@ func (ids RemoteIDs) key() string {
 // remoteCacheSize bounds the remembered answers; the cache starts over when full.
 const remoteCacheSize = 500
 
+// Found is a cover a provider has. Album is the provider's album title when
+// it was found through a track id (the track's album there, which may be
+// another edition); "" when it came from an album id.
+type Found struct {
+	URL, Album string
+}
+
 // Remote finds a cover URL on the providers by id, without downloading or
 // storing it. Answers are remembered, so a client resending "playing now"
 // does not ask again.
@@ -31,14 +38,14 @@ type Remote struct {
 	Registry *providers.Registry
 
 	mu    sync.Mutex
-	cache map[string]string
+	cache map[string]Found
 }
 
-// Find returns the provider's cover URL for ids, or "" when none has one.
-func (r *Remote) Find(ctx context.Context, ids RemoteIDs) string {
+// Find returns the provider's cover for ids; its URL is "" when none has one.
+func (r *Remote) Find(ctx context.Context, ids RemoteIDs) Found {
 	k := ids.key()
 	if k == "||||" {
-		return ""
+		return Found{}
 	}
 	r.mu.Lock()
 	u, ok := r.cache[k]
@@ -50,7 +57,7 @@ func (r *Remote) Find(ctx context.Context, ids RemoteIDs) string {
 	if final { // a rate limit or outage is not an answer: ask again next time
 		r.mu.Lock()
 		if r.cache == nil || len(r.cache) >= remoteCacheSize {
-			r.cache = map[string]string{}
+			r.cache = map[string]Found{}
 		}
 		r.cache[k] = u
 		r.mu.Unlock()
@@ -64,21 +71,21 @@ var (
 	mbOnly      = []string{providers.MusicBrainz}
 )
 
-func (r *Remote) find(ctx context.Context, ids RemoteIDs) (string, bool) {
+func (r *Remote) find(ctx context.Context, ids RemoteIDs) (Found, bool) {
 	final := true
-	try := func(names []string, album, track string) string {
+	try := func(names []string, album, track string) Found {
 		for _, name := range names {
 			p, ok := r.Registry.Get(name)
 			if !ok {
 				continue
 			}
-			id := album
+			id, title := album, ""
 			if id == "" && track != "" {
 				t, err := p.GetTrack(ctx, track)
 				if !answered(err, &final) || t == nil || len(t.Releases) == 0 {
 					continue
 				}
-				id = t.Releases[0].ProviderID
+				id, title = t.Releases[0].ProviderID, t.Releases[0].Title
 			}
 			if id == "" {
 				continue
@@ -88,10 +95,10 @@ func (r *Remote) find(ctx context.Context, ids RemoteIDs) (string, bool) {
 				continue
 			}
 			if ref, ok := pick(refs); ok {
-				return ref.URL
+				return Found{ref.URL, title}
 			}
 		}
-		return ""
+		return Found{}
 	}
 	for _, step := range []struct {
 		names        []string
@@ -106,14 +113,14 @@ func (r *Remote) find(ctx context.Context, ids RemoteIDs) (string, bool) {
 		if step.album == "" && step.track == "" {
 			continue
 		}
-		if u := try(step.names, step.album, step.track); u != "" {
-			return u, true
+		if f := try(step.names, step.album, step.track); f.URL != "" {
+			return f, true
 		}
 		if ctx.Err() != nil {
-			return "", false
+			return Found{}, false
 		}
 	}
-	return "", final
+	return Found{}, final
 }
 
 // answered reports whether err is a usable answer; a provider that is down or

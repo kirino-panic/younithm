@@ -160,14 +160,15 @@ func (h *Handler) submitListens(w http.ResponseWriter, r *http.Request) {
 			Source: clientName(ai), RawPayload: raw,
 		})
 	}
-	acc, dup, err := h.store.Insert(r.Context(), batch)
+	rels := make([]int64, len(batch))
+	acc, dup, err := h.store.insert(r.Context(), batch, rels)
 	if err != nil {
 		log.Printf("ingest: insert: %v", err)
 		lbError(w, 500, "Internal error storing listens.")
 		return
 	}
 	if req.ListenType == "single" {
-		h.np.ClearIfMatches(uid, batch[0].Artist, batch[0].Title)
+		h.keepCover(rels[0], h.np.ClearIfMatches(uid, batch[0].Artist, batch[0].Title))
 	}
 	if acc > 0 {
 		h.np.Scrobbled()
