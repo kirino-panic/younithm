@@ -168,3 +168,79 @@ func nameTaken(ctx context.Context, tx Querier, kind string, id int64, key strin
 	err := tx.QueryRowContext(ctx, q, id, strings.TrimSpace(key)).Scan(&n)
 	return n > 0, err
 }
+
+// AddAlias adds a name by hand. A track's name is its title, keyed with the
+// track's first credited artist. A matching name another entry already goes
+// by is added as search-only instead, and the result says so. Adding a name
+// that was removed earlier lifts the removal.
+func (e *Editor) AddAlias(ctx context.Context, actor, kind string, id int64, name string, searchOnly bool) (*Result, bool, error) {
+	if _, ok := kindTable[kind]; !ok {
+		return nil, false, invalid("bad_kind", "kind must be artist, recording or release")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, false, invalid("empty_name", "enter a name")
+	}
+	asSearch := searchOnly
+	res, err := e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
+		row, err := e.entityExists(ctx, tx, kind, id)
+		if err != nil {
+			return nil, err
+		}
+		var key string
+		switch kind {
+		case KindArtist:
+			key = ArtistKey(name)
+		case KindRelease:
+			key = ReleaseKey(name)
+		default:
+			var artist string
+			if err := tx.QueryRowContext(ctx, `SELECT a.name FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
+				WHERE ra.recording_id=? ORDER BY ra.position, a.id LIMIT 1`, id).Scan(&artist); err != nil {
+				if err == sql.ErrNoRows {
+					return nil, invalid("no_artists", "give the track an artist first")
+				}
+				return nil, err
+			}
+			key = RecordingKey(artist, name)
+		}
+		if strings.Trim(key, keySep) == "" {
+			return nil, invalid("empty_name", "enter a name")
+		}
+		own, err := aliasKeys(ctx, tx, kind, id, row)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range own {
+			if k == key {
+				return nil, invalid("own_name", "this is already its name")
+			}
+		}
+		if al, sn, err := aliasRow(ctx, tx, kind, id, key); err != nil {
+			return nil, err
+		} else if al != nil || sn != nil {
+			return nil, invalid("name_listed", "this name is already listed")
+		}
+		if !asSearch {
+			taken, err := nameTaken(ctx, tx, kind, id, key)
+			if err != nil {
+				return nil, err
+			}
+			asSearch = taken
+		}
+		var cs []Change
+		if asSearch {
+			cs = append(cs, Change{Table: "search_name", After: Row{"kind": kind, "entity_id": id, "name": key, "provider": "", "provider_id": ""}})
+		} else {
+			cs = append(cs, Change{Table: "alias", After: Row{"kind": kind, "raw_string": key, "entity_id": id}})
+		}
+		if rs, err := queryRows(ctx, tx, `SELECT `+cols("alias_rejection")+` FROM alias_rejection WHERE kind=? AND entity_id=? AND name=?`, kind, id, key); err != nil {
+			return nil, err
+		} else if len(rs) > 0 {
+			cs = append(cs, Change{Table: "alias_rejection", Key: Row{"kind": kind, "entity_id": id, "name": key}, Before: rs[0]})
+		}
+		return &draft{scope: "alias", entityType: kind, entityID: id,
+			summary: fmt.Sprintf("Add a name to %s %d", kind, id), changes: cs}, nil
+	})
+	return res, asSearch, err
+}

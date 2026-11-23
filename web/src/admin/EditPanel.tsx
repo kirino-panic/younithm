@@ -43,6 +43,14 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   // Other names as loaded, and what's changed: search only on or off, or removed.
   const [names, setNames] = useState<AliasEntry[]>([]);
   const [nameEdits, setNameEdits] = useState<Record<string, boolean | "removed">>({});
+  // Names typed in, added on Save. nameDraft is the open input, if any.
+  const [newNames, setNewNames] = useState<{ name: string; searchOnly: boolean }[]>([]);
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitDraft = () => {
+    const n = (nameDraft || "").trim();
+    if (n && !newNames.some((x) => x.name.toLowerCase() === n.toLowerCase())) setNewNames((xs) => [...xs, { name: n, searchOnly: false }]);
+    setNameDraft(null);
+  };
   useEffect(() => {
     endpoints.aliases(kind, id).then((r) => setNames(r.items), () => setNames([]));
   }, [kind, id]);
@@ -199,13 +207,22 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         else await endpoints.setAliasSearchOnly(kind, id, n, v);
         done.push("names");
       }
+      const searchOnlyNow: string[] = [];
+      const pending = [...newNames, ...(nameDraft?.trim() ? [{ name: nameDraft.trim(), searchOnly: false }] : [])];
+      for (const n of pending) {
+        const r = await endpoints.addAlias(kind, id, n.name, n.searchOnly);
+        if (r.search_only && !n.searchOnly) searchOnlyNow.push(n.name);
+        setNewNames((xs) => xs.filter((x) => x.name !== n.name));
+        done.push("names");
+      }
       for (const [p, v] of Object.entries(linkEdits)) {
         if (v === null) await endpoints.removeLink(kind, id, p);
         else if (v.trim()) await endpoints.setLink(kind, id, v.trim());
         else continue;
         done.push("links");
       }
-      if (done.length) toast({ text: "Saved" });
+      if (searchOnlyNow.length) toast({ text: `Saved. Another ${LABELS[kind].toLowerCase()} goes by ${searchOnlyNow.join(", ")}, so it's search only.` });
+      else if (done.length) toast({ text: "Saved" });
       onSaved();
       onClose();
     } catch (e) {
@@ -416,8 +433,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         </div>
       </section>
 
-      {names.length > 0 && (
-        <section>
+      <section>
           <button className="btn btn-plain" style={{ width: "100%", gap: 8, padding: 0 }} onClick={() => setAkaOpen((o) => !o)} aria-expanded={akaOpen}>
             <span className="section-label" style={{ margin: 0, flex: 1, display: "flex", alignItems: "center", gap: 4 }}>
               Also known as
@@ -450,10 +466,22 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                   </div>
                 );
               })}
+              {newNames.map((n) => (
+                <div key={"new:" + n.name} className="edit-row">
+                  <span className="grow truncate" title={n.name}>{n.name}</span>
+                  <Badge>New</Badge>
+                  <Switch checked={n.searchOnly} onChange={(v) => setNewNames((xs) => xs.map((x) => x === n ? { ...x, searchOnly: v } : x))} label={`Use ${n.name} in search only`} />
+                  <button className="btn btn-icon btn-plain" aria-label={`Don't add ${n.name}`} onClick={() => setNewNames((xs) => xs.filter((x) => x !== n))}><X size={15} /></button>
+                </div>
+              ))}
+              {nameDraft !== null
+                ? <input className="input" autoFocus aria-label="New name" placeholder={kind === "recording" ? "Another title for this track" : "Another name"}
+                    value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onBlur={commitDraft}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitDraft(); } else if (e.key === "Escape") { e.stopPropagation(); setNameDraft(null); } }} />
+                : <button className="btn edit-add" onClick={() => setNameDraft("")}><Plus size={15} /> Add name</button>}
             </div>
           )}
-        </section>
-      )}
+      </section>
       {err && <p className="error-text">{err}</p>}
 
       {merging && (

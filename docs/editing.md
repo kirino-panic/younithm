@@ -48,7 +48,7 @@ An album's release date takes a year, a year and month, or a full date (`2024`, 
 
 ## Other names
 
-"Also known as" lists an entity's other names. A matching name (`alias`) sends listens under it to the entity and finds it in search. A search-only name (`search_name`) only finds it in search; names read from MusicBrainz start that way. Switching a name to matching fails when another entry already goes by it. A removed name is recorded in `alias_rejection`, so no catalogue, listen or rescan adds it back. These edits are logged with the `alias` scope, which, like `link`, doesn't make a track count as edited by hand. Merges carry search names and removals to the kept entry; deletes and splits drop them.
+"Also known as" lists an entity's other names. A matching name (`alias`) sends listens under it to the entity and finds it in search. A search-only name (`search_name`) only finds it in search; names read from MusicBrainz start that way. Switching a name to matching fails when another entry already goes by it. "Add name" adds one by hand, as matching unless switched off; a name another entry goes by is added as search-only instead. A track's added name is a title, keyed with the track's first artist. Adding a removed name lifts the removal. A removed name is recorded in `alias_rejection`, so no catalogue, listen or rescan adds it back. These edits are logged with the `alias` scope, which, like `link`, doesn't make a track count as edited by hand. Merges carry search names and removals to the kept entry; deletes and splits drop them.
 
 ## Bulk edit
 
@@ -73,6 +73,7 @@ Under `/api/v1/admin`.
 | `PUT /entities/{kind}/{id}/artists` | Replace credits |
 | `GET /entities/{kind}/{id}/aliases` | Other names, matching and search-only |
 | `PUT /entities/{kind}/{id}/aliases` | `{name, search_only}` |
+| `POST /entities/{kind}/{id}/aliases` | `{name, search_only}`; adds a name, and returns whether it ended up search-only |
 | `POST /entities/{kind}/{id}/aliases/remove` | `{name}`; it stays removed |
 | `POST /releases/{id}/apply-artists` | The album's artists onto every track on it |
 | `POST /entities/{kind}/{id}/refresh` | Look a recording, or every recording on a release, up again; fills what's missing, like lengths. Not an edit |

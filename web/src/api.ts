@@ -281,6 +281,8 @@ export const endpoints = {
   setAliasSearchOnly: (kind: string, id: number, name: string, search_only: boolean) =>
     api.put<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases`, { name, search_only }),
   // Removed names stay removed: no catalogue or listen adds them back.
+  addAlias: (kind: string, id: number, name: string, search_only: boolean) =>
+    api.post<EditResult & { search_only: boolean }>(`/api/v1/admin/entities/${kind}/${id}/aliases`, { name, search_only }),
   removeAlias: (kind: string, id: number, name: string) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases/remove`, { name }),
   // The album's artists onto every track on it, as one undoable edit.
   applyAlbumArtists: (rel: number) => api.post<EditResult>(`/api/v1/admin/releases/${rel}/apply-artists`),

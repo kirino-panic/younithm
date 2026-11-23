@@ -93,3 +93,54 @@ func TestMergeCarriesSearchNamesAndRemovals(t *testing.T) {
 		t.Fatal("search names and removals did not follow the merge")
 	}
 }
+
+func TestAddAliasByHand(t *testing.T) {
+	e := newEnv(t)
+	a := e.artist("Reol")
+	e.artist("Srezcat")
+	e.exec(`INSERT INTO alias_rejection(kind,entity_id,name) VALUES ('artist',?,'icy')`, a)
+
+	res, so, err := e.ed.AddAlias(ctx, "admin", "artist", a, "  れをる ", false)
+	if err != nil || so {
+		t.Fatalf("add: %v search_only=%v", err, so)
+	}
+	if e.count(`SELECT COUNT(*) FROM alias WHERE kind='artist' AND raw_string='れをる' AND entity_id=?`, a) != 1 {
+		t.Fatal("matching name not added")
+	}
+	if _, err := e.ed.Undo(ctx, "admin", res.EditID); err != nil {
+		t.Fatal(err)
+	}
+	if e.count(`SELECT COUNT(*) FROM alias WHERE raw_string='れをる'`) != 0 {
+		t.Fatal("undo left the name")
+	}
+
+	// Another artist's name can only be added for search.
+	if _, so, err := e.ed.AddAlias(ctx, "admin", "artist", a, "Srezcat", false); err != nil || !so {
+		t.Fatalf("taken name: %v search_only=%v", err, so)
+	}
+	// Adding a removed name lifts the removal.
+	if _, _, err := e.ed.AddAlias(ctx, "admin", "artist", a, "icy", true); err != nil {
+		t.Fatal(err)
+	}
+	if e.count(`SELECT COUNT(*) FROM alias_rejection`) != 0 || e.count(`SELECT COUNT(*) FROM search_name WHERE name='icy'`) != 1 {
+		t.Fatal("removal not lifted")
+	}
+	_, _, err = e.ed.AddAlias(ctx, "admin", "artist", a, "ICY", false)
+	wantErr(t, err, "name_listed")
+	_, _, err = e.ed.AddAlias(ctx, "admin", "artist", a, "reol", false)
+	wantErr(t, err, "own_name")
+	_, _, err = e.ed.AddAlias(ctx, "admin", "artist", a, " ", false)
+	wantErr(t, err, "empty_name")
+}
+
+func TestAddTrackNameUsesFirstArtist(t *testing.T) {
+	e := newEnv(t)
+	a, b := e.artist("Reol"), e.artist("Giga")
+	r := e.recording("Gekihaku", a, b)
+	if _, _, err := e.ed.AddAlias(ctx, "admin", "recording", r, "激白", false); err != nil {
+		t.Fatal(err)
+	}
+	if e.count(`SELECT COUNT(*) FROM alias WHERE kind='recording' AND raw_string=? AND entity_id=?`, identity.RecordingAliasKey("Reol", "激白"), r) != 1 {
+		t.Fatal("track name not keyed with its first artist")
+	}
+}
