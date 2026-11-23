@@ -114,7 +114,16 @@ func shownName(entity string) string {
 func nameMatches(entity, id string) string {
 	return `EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + entity + `' AND n.entity_id = ` + id + ` AND n.name LIKE ?1 ESCAPE '\')
   OR EXISTS (SELECT 1 FROM ` + entity + ` d WHERE d.id = ` + id + ` AND d.display_name LIKE ?1 ESCAPE '\')
-  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + entity + `' AND al.entity_id = ` + id + ` AND al.raw_string LIKE ?6 ESCAPE '\')`
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + entity + `' AND al.entity_id = ` + id + ` AND al.raw_string LIKE ?6 ESCAPE '\')` + searchOnly(entity, id)
+}
+
+// searchOnly matches an artist's catalogue aliases, which only search uses.
+func searchOnly(entity, id string) string {
+	if entity != "artist" {
+		return ""
+	}
+	return `
+  OR EXISTS (SELECT 1 FROM artist_search_name sn WHERE sn.artist_id = ` + id + ` AND sn.name LIKE ?6 ESCAPE '\')`
 }
 
 func likePattern(q string) string {

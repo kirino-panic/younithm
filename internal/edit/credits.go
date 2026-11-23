@@ -214,6 +214,7 @@ func Search(ctx context.Context, db Querier, kind, q string, limit int) ([]Searc
 FROM artist a
 WHERE lower(a.name) LIKE ?1 ESCAPE '\' OR lower(COALESCE(a.display_name, '')) LIKE ?1 ESCAPE '\'
   OR EXISTS (SELECT 1 FROM alias al WHERE al.kind='artist' AND al.entity_id=a.id AND lower(al.raw_string) LIKE ?1 ESCAPE '\')
+  OR EXISTS (SELECT 1 FROM artist_search_name sn WHERE sn.artist_id=a.id AND sn.name LIKE ?1 ESCAPE '\')
 ORDER BY lower(a.name) = lower(?3) OR lower(COALESCE(a.display_name, '')) = lower(?3) DESC,
   lower(a.name) LIKE ?2 OR lower(COALESCE(a.display_name, '')) LIKE ?2 DESC,
   (SELECT COUNT(*) FROM recording_artist ra WHERE ra.artist_id=a.id) DESC, a.name LIMIT ?4`

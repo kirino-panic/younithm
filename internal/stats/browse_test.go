@@ -156,6 +156,23 @@ func TestLibrarySearchesTrackAliases(t *testing.T) {
 	}
 }
 
+func TestLibrarySearchesArtistSearchNames(t *testing.T) {
+	_, d := setup(t)
+	seed(t, d)
+	exec(t, d, `INSERT INTO artist_search_name(artist_id,name,provider,provider_id) VALUES (1,'ニーゴ','musicbrainz','mb-1')`)
+	h := New(d)
+	r := chi.NewRouter()
+	h.MountLibrary(r, nil, nil)
+	var out struct {
+		Total int64        `json:"total"`
+		Items []browseItem `json:"items"`
+	}
+	get(t, r, "/library/artists?q=%E3%83%8B%E3%83%BC", &out)
+	if out.Total != 1 || out.Items[0].ID != 1 {
+		t.Fatalf("artist by search name %+v", out)
+	}
+}
+
 func TestArtistTrackList(t *testing.T) {
 	h, d := librarySetupDB(t)
 	// An unplayed track of Matched Artist's still lists, last.

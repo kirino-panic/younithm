@@ -378,11 +378,17 @@ func (m *Manager) fillAliases(ctx context.Context, langs []string) error {
 }
 
 // importAliases reads every MusicBrainz alias of the artists holding a
-// MusicBrainz id into the alias table, once per id, so listens and searches
-// under any of those names find the artist. An id two of our artists hold is
-// skipped (which one the names belong to is unknown). A name another artist
-// goes by, or that is already an alias, is never taken (identity.AddAlias).
+// MusicBrainz id into artist_search_name, once per id and artist, so searches
+// find the artist under any of those names. They are never used to match a
+// listen: alias lists hold short and shared names. Names whose id the artist
+// no longer holds (the link was removed, moved or merged away) are dropped
+// first, and an id two of our artists hold is skipped.
 func (m *Manager) importAliases(ctx context.Context) error {
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM artist_search_name WHERE NOT EXISTS (
+  SELECT 1 FROM external_link l WHERE l.entity_type='artist' AND l.entity_id=artist_search_name.artist_id
+    AND l.provider=artist_search_name.provider AND l.provider_id=artist_search_name.provider_id AND l.status IN ('confirmed','auto'))`); err != nil {
+		return err
+	}
 	mbp, ok := m.matcher.Providers.Get(providers.MusicBrainz)
 	if !ok {
 		return nil
@@ -393,10 +399,11 @@ func (m *Manager) importAliases(ctx context.Context) error {
 	}
 	for round := 0; round < 100; round++ {
 		rows, err := m.db.QueryContext(ctx, `
-SELECT l.provider_id, MIN(l.entity_id) FROM external_link l
-WHERE l.entity_type='artist' AND l.provider='musicbrainz' AND l.status IN ('confirmed','auto')
-  AND NOT EXISTS (SELECT 1 FROM alias_import i WHERE i.provider='musicbrainz' AND i.provider_id=l.provider_id)
-GROUP BY l.provider_id HAVING COUNT(DISTINCT l.entity_id)=1
+SELECT h.provider_id, h.artist FROM (
+  SELECT provider_id, MIN(entity_id) AS artist FROM external_link
+  WHERE entity_type='artist' AND provider='musicbrainz' AND status IN ('confirmed','auto')
+  GROUP BY provider_id HAVING COUNT(DISTINCT entity_id)=1) h
+WHERE NOT EXISTS (SELECT 1 FROM alias_import i WHERE i.provider='musicbrainz' AND i.provider_id=h.provider_id AND i.artist_id=h.artist)
 LIMIT ?`, lk.MaxArtists())
 		if err != nil {
 			return err
@@ -430,12 +437,18 @@ LIMIT ?`, lk.MaxArtists())
 		now := m.stamp(m.o.Now())
 		for pid, artist := range todo {
 			for _, n := range got[pid] {
-				if _, err := identity.AddAlias(ctx, tx, identity.KindArtist, artist, identity.ArtistAliasKey(n.Name)); err != nil {
+				key := identity.ArtistAliasKey(n.Name)
+				if key == "" {
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO artist_search_name (artist_id, name, provider, provider_id)
+					VALUES (?, ?, 'musicbrainz', ?)`, artist, key, pid); err != nil {
 					tx.Rollback()
 					return err
 				}
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO alias_import (provider, provider_id, fetched_at) VALUES ('musicbrainz', ?, ?)`, pid, now); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO alias_import (provider, provider_id, artist_id, fetched_at)
+				VALUES ('musicbrainz', ?, ?, ?)`, pid, artist, now); err != nil {
 				tx.Rollback()
 				return err
 			}

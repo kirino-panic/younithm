@@ -264,18 +264,19 @@ func TestLangScore(t *testing.T) {
 	}
 }
 
-// Every MusicBrainz alias of an artist holding a MusicBrainz id becomes an
-// alias of ours, once: hints and names with no language too, but never a
-// name another artist goes by, and nothing for an id two artists hold.
-func TestNamePassImportsMusicBrainzAliases(t *testing.T) {
+// Every MusicBrainz alias of an artist holding a MusicBrainz id becomes a
+// search-only name of ours, once: hints and names with no language too. None
+// becomes a matching alias, an id two artists hold gets nothing, and names go
+// when the artist no longer holds the id.
+func TestNamePassImportsMusicBrainzAliasesForSearchOnly(t *testing.T) {
 	e := setup(t)
 	mb := &fakeMB{aliases: map[string][]providers.LocalName{
-		"mb-band":   {{Lang: "ja", Name: "ザ・バンド"}, {Name: "Band, The"}, {Name: "TheBand", Hint: true}, {Name: "Other Artist"}},
+		"mb-band":   {{Lang: "ja", Name: "ザ・バンド"}, {Name: "Band, The"}, {Name: "TheBand", Hint: true}},
 		"mb-shared": {{Name: "Nobody Knows"}},
 	}}
 	e.m = NewManager(e.db, match.New(providers.NewRegistry(mb), match.Config{}), snapshot.New(e.db),
 		Options{Now: func() time.Time { return e.now }, MaxAttempts: 3})
-	exec(t, e.db, `INSERT INTO artist(id,name) VALUES (2,'Other Artist'),(3,'Shared A'),(4,'Shared B')`)
+	exec(t, e.db, `INSERT INTO artist(id,name) VALUES (3,'Shared A'),(4,'Shared B')`)
 	exec(t, e.db, `INSERT INTO external_link(entity_type,entity_id,provider,provider_id,match_method,status) VALUES
 	  ('artist',1,'musicbrainz','mb-band','lookup','auto'),
 	  ('artist',3,'musicbrainz','mb-shared','lookup','auto'),
@@ -284,22 +285,28 @@ func TestNamePassImportsMusicBrainzAliases(t *testing.T) {
 	if err := e.m.NamePass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var got []string
-	rows, _ := e.db.Query(`SELECT raw_string FROM alias WHERE kind='artist' AND entity_id=1 ORDER BY raw_string`)
-	for rows.Next() {
-		var s string
-		rows.Scan(&s)
-		got = append(got, s)
+	names := func() string {
+		var got []string
+		rows, _ := e.db.Query(`SELECT name FROM artist_search_name WHERE artist_id=1 ORDER BY name`)
+		for rows.Next() {
+			var s string
+			rows.Scan(&s)
+			got = append(got, s)
+		}
+		rows.Close()
+		return fmt.Sprint(got)
 	}
-	rows.Close()
-	want := fmt.Sprint([]string{"band, the", "theband", "ザ・バンド"})
-	if fmt.Sprint(got) != want {
-		t.Fatalf("aliases %v, want %v", got, want)
+	if got, want := names(), fmt.Sprint([]string{"band, the", "theband", "ザ・バンド"}); got != want {
+		t.Fatalf("search names %v, want %v", got, want)
 	}
-	var shared int
-	e.db.QueryRow(`SELECT COUNT(*) FROM alias WHERE raw_string='nobody knows'`).Scan(&shared)
-	if shared != 0 {
-		t.Fatal("aliases were given for an id two artists hold")
+	var n int
+	e.db.QueryRow(`SELECT COUNT(*) FROM alias WHERE raw_string IN ('band, the','theband','ザ・バンド','nobody knows')`).Scan(&n)
+	if n != 0 {
+		t.Fatal("a catalogue alias became a matching alias")
+	}
+	e.db.QueryRow(`SELECT COUNT(*) FROM artist_search_name WHERE name='nobody knows'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("names were given for an id two artists hold")
 	}
 	reqs := mb.nameReq
 	if err := e.m.NamePass(ctx); err != nil {
@@ -307,5 +314,12 @@ func TestNamePassImportsMusicBrainzAliases(t *testing.T) {
 	}
 	if mb.nameReq != reqs {
 		t.Fatal("a second pass asked for aliases again")
+	}
+	exec(t, e.db, `DELETE FROM external_link WHERE entity_type='artist' AND entity_id=1 AND provider='musicbrainz'`)
+	if err := e.m.NamePass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(); got != "[]" {
+		t.Fatalf("names stayed after the link was removed: %v", got)
 	}
 }

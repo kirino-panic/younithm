@@ -134,7 +134,7 @@ func MergeSearch(ctx context.Context, db Querier, kind string, id int64, q strin
 	query := strings.Replace(base, "\nFROM ", ", '' AS reason\nFROM ", 1) + `
 WHERE x.id <> ?4 AND (` + match("lower("+col+")") + ` OR ` + match("lower(COALESCE(x.display_name, ''))") + `
   OR EXISTS (SELECT 1 FROM entity_name n WHERE n.entity_type = '` + kind + `' AND n.entity_id = x.id AND ` + match("lower(n.name)") + `)
-  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + kind + `' AND al.entity_id = x.id AND ` + match("lower(replace(al.raw_string, char(31), ' '))") + `))
+  OR EXISTS (SELECT 1 FROM alias al WHERE al.kind = '` + kind + `' AND al.entity_id = x.id AND ` + match("lower(replace(al.raw_string, char(31), ' '))") + `)` + searchNames(kind, match) + `)
 ORDER BY ` + sameArtist + `lower(` + col + `) = ?2 DESC, lower(COALESCE(x.display_name, '')) = ?2 DESC, lower(` + col + `) LIKE ?3 ESCAPE '\' DESC, 4 DESC
 LIMIT ?5`
 	prefix := esc.Replace(lq) + "%"
@@ -292,6 +292,15 @@ func sharesBase(ctx context.Context, db Querier, kind string, id int64, bases []
 }
 
 // entityNames is every name the entity goes by, lowercased: stored, display,
+// searchNames matches an artist's search-only catalogue aliases.
+func searchNames(kind string, match func(string) string) string {
+	if kind != KindArtist {
+		return ""
+	}
+	return `
+  OR EXISTS (SELECT 1 FROM artist_search_name sn WHERE sn.artist_id = x.id AND ` + match("sn.name") + `)`
+}
+
 // catalogue names and (for artists and albums) the spellings it was scrobbled as.
 func entityNames(ctx context.Context, db Querier, kind string, id int64) ([]string, error) {
 	t := kindTable[kind]
