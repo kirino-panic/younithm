@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,15 +36,20 @@ var (
 
 // Service owns all auth state. Obtain one via New; Mount wires it to HTTP.
 type Service struct {
-	db  *sql.DB
-	now func() time.Time
+	db *sql.DB
+	// read answers session lookups. Every request with a cookie makes one, so
+	// it must not wait behind the single write connection, which background
+	// work can hold for a long time. Defaults to db.
+	read     *sql.DB
+	touching sync.Map // session ids whose idle timer is being saved
+	now      func() time.Time
 	// hasher is swappable in tests (argon2 at production cost is slow).
 	hash   func(string) (string, error)
 	verify func(pw, enc string) (bool, error)
 }
 
 func New(db *sql.DB) *Service {
-	return &Service{db: db, now: time.Now, hash: HashPassword, verify: VerifyPassword}
+	return &Service{db: db, read: db, now: time.Now, hash: HashPassword, verify: VerifyPassword}
 }
 
 func ts(t time.Time) string { return t.UTC().Format(timeFmt) }
@@ -294,7 +300,7 @@ func (s *Service) LookupSession(ctx context.Context, token string) (*Session, er
 		exp, ls string
 		su      sql.NullString
 	)
-	err := s.db.QueryRowContext(ctx,
+	err := s.read.QueryRowContext(ctx,
 		`SELECT s.id, s.csrf_token, s.expires_at, s.last_seen_at, s.step_up_until, u.id, u.username
 		 FROM auth_session s JOIN admin_user u ON u.id = s.user_id WHERE s.token_hash = ?`,
 		sha256hex(token)).Scan(&ss.ID, &ss.CSRF, &exp, &ls, &su, &ss.User.ID, &ss.User.Username)
@@ -306,7 +312,7 @@ func (s *Service) LookupSession(ctx context.Context, token string) (*Session, er
 	}
 	now := s.now()
 	if now.After(parseTS(exp)) || now.After(parseTS(ls).Add(sessionIdle)) {
-		_, _ = s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE id = ?`, ss.ID)
+		s.later(ss.ID, `DELETE FROM auth_session WHERE id = ?`, ss.ID)
 		return nil, ErrNoSession
 	}
 	if su.Valid {
@@ -314,9 +320,24 @@ func (s *Service) LookupSession(ctx context.Context, token string) (*Session, er
 	}
 	// Only write when it matters, to keep reads cheap.
 	if now.Sub(parseTS(ls)) > time.Minute {
-		_, _ = s.db.ExecContext(ctx, `UPDATE auth_session SET last_seen_at = ? WHERE id = ?`, ts(now), ss.ID)
+		s.later(ss.ID, `UPDATE auth_session SET last_seen_at = ? WHERE id = ?`, ts(now), ss.ID)
 	}
 	return &ss, nil
+}
+
+// later runs a session's housekeeping write in the background, one at a time
+// per session, so a request never waits for the write connection. A write
+// that cannot run in time is dropped; the next request tries again.
+func (s *Service) later(id int64, query string, args ...any) {
+	if _, busy := s.touching.LoadOrStore(id, struct{}{}); busy {
+		return
+	}
+	go func() {
+		defer s.touching.Delete(id)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, _ = s.db.ExecContext(ctx, query, args...)
+	}()
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {

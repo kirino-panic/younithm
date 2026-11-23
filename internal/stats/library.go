@@ -87,8 +87,10 @@ func fail(w http.ResponseWriter, what string, err error) {
 // buildChart buckets per-day counts (scrobbles matching where) into the three
 // chart ranges.
 func (h *Handler) buildChart(ctx context.Context, where string, args ...any) (chart, error) {
+	// +s.user_id keeps SQLite off the (user_id, played_at) index, which would
+	// walk every listen; where names an indexed column to start from instead.
 	rows, err := h.read.QueryContext(ctx, `SELECT substr(s.played_at, 1, 10), COUNT(*) FROM scrobble s
-WHERE s.user_id = 1 AND `+where+` GROUP BY 1 ORDER BY 1`, args...)
+WHERE +s.user_id = 1 AND `+where+` GROUP BY 1 ORDER BY 1`, args...)
 	if err != nil {
 		return chart{}, err
 	}
@@ -275,18 +277,15 @@ func (h *Handler) artist(w http.ResponseWriter, r *http.Request) {
 	const mine = `s.recording_id IN (SELECT recording_id FROM recording_artist WHERE artist_id = ?)`
 	var sp span
 	if err := h.read.QueryRowContext(ctx, `SELECT COUNT(*), MIN(s.played_at), MAX(s.played_at) FROM scrobble s
-WHERE s.user_id = 1 AND `+mine, id).Scan(&sp.Plays, &sp.First, &sp.Last); err != nil {
+WHERE +s.user_id = 1 AND `+mine, id).Scan(&sp.Plays, &sp.First, &sp.Last); err != nil {
 		fail(w, "artist plays", err)
 		return
 	}
 	// Rank among artists, counted the way the top list counts (primary credits).
 	var rank int64
 	if sp.Plays > 0 {
-		if err := h.read.QueryRowContext(ctx, `
-WITH p AS (SELECT ra.artist_id, COUNT(*) AS n FROM scrobble s
-  JOIN recording_artist ra ON ra.recording_id = s.recording_id AND ra.role = 'primary'
-  WHERE s.user_id = 1 GROUP BY ra.artist_id)
-SELECT 1 + COUNT(*) FROM p WHERE n > COALESCE((SELECT n FROM p WHERE artist_id = ?), 0)`, id).Scan(&rank); err != nil {
+		var err error
+		if rank, err = h.artistRank(ctx, id); err != nil {
 			fail(w, "artist rank", err)
 			return
 		}

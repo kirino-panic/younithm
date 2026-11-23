@@ -28,6 +28,7 @@ type Handler struct {
 	read  *sql.DB
 	now   func() time.Time
 	names *names.Source // display-name preference; nil = stored names
+	ranks rankCache
 }
 
 // WithNames shows names in the admin's preferred catalogue's wording.

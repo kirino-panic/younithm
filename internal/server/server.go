@@ -99,6 +99,7 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 	if err != nil {
 		panic("server: " + err.Error()) // main validates config first
 	}
+	authOpt.Read = pools.Read
 	auth.Mount(r, pools.Write, authOpt)
 
 	store := secrets.NewStore(pools.Read, pools.Write, o.box, o.red)

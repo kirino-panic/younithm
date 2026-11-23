@@ -26,6 +26,8 @@ import (
 type Options struct {
 	TrustedProxies []netip.Prefix
 	TrustProxy     bool
+	// Read, when set, answers session lookups instead of the write pool.
+	Read *sql.DB
 }
 
 // OptionsFromConfig derives Options from the loaded configuration.
@@ -41,6 +43,9 @@ func OptionsFromConfig(c config.Config) (Options, error) {
 // that RequireSession / RequireStepUp use.
 func Mount(r chi.Router, db *sql.DB, opt Options) *Service {
 	svc := New(db)
+	if opt.Read != nil {
+		svc.read = opt.Read
+	}
 	m := &Middleware{svc: svc, trustProxy: opt.TrustProxy, proxies: opt.TrustedProxies}
 	m.install()
 	if opt.TrustProxy {
