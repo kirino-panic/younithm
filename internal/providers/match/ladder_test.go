@@ -347,6 +347,34 @@ func TestSearchTitleDropsOnlyTheCreditAndRemasterTags(t *testing.T) {
 	}
 }
 
+func TestWithIsACreditOnlyInBrackets(t *testing.T) {
+	for in, want := range map[string]string{
+		"With or Without You":                    "with or without you",
+		"Dancing With a Stranger":                "dancing with a stranger",
+		"Dancing With a Stranger (with Normani)": "dancing with a stranger",
+		"Song [With X]":                          "song",
+		"Song feat. X":                           "song",
+	} {
+		if got := NormTitle(in); got != want {
+			t.Errorf("NormTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := SearchTitle("With or Without You"); got != "With or Without You" {
+		t.Errorf("SearchTitle = %q", got)
+	}
+	if got := NormArtist("Florence with the Machine"); got != "florence with the machine" {
+		t.Errorf("NormArtist = %q", got)
+	}
+}
+
+func TestFoldUnifiesWidths(t *testing.T) {
+	for a, b := range map[string]string{"ＦＵＮ": "FUN", "ｶﾞｰﾙ": "ガール", "A＆B": "A & B"} {
+		if NormTitle(a) != NormTitle(b) {
+			t.Errorf("NormTitle(%q) = %q, NormTitle(%q) = %q", a, NormTitle(a), b, NormTitle(b))
+		}
+	}
+}
+
 // spotifyOn is a Spotify track on one album.
 func spotifyOn(id, title, album string) providers.Track {
 	return providers.Track{Provider: providers.Spotify, ProviderID: id, Title: title,

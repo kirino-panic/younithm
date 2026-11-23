@@ -4,10 +4,15 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
-	featRe     = regexp.MustCompile(`(?i)[\(\[]?\b(feat\.?|ft\.?|featuring|with)\b[^\)\]]*[\)\]]?`)
+	// A feature credit: "(with X)" only in brackets, since "with" is also an
+	// ordinary title word ("With or Without You", "Stay With Me"); feat./ft./
+	// featuring in brackets or bare.
+	featRe     = regexp.MustCompile(`(?i)[\(\[]\s*(feat\.?|ft\.?|featuring|with)\b[^\)\]]*[\)\]]?|\b(feat\.?|ft\.?|featuring)\b[^\)\]]*[\)\]]?`)
 	remasterRe = regexp.MustCompile(`(?i)[\(\[\-–]\s*(\d{4}\s+)?(digital\s+)?remaster(ed)?(\s+\d{4})?\s*(version)?\s*[\)\]]?`)
 	spaceRe    = regexp.MustCompile(`\s+`)
 )
@@ -17,9 +22,10 @@ var (
 // it is stripped by NormTitle instead.
 var versionMarkers = []string{"live", "remix", "acoustic", "instrumental", "demo", "karaoke", "cover"}
 
-// fold lowercases, unifies "&"/"and", drops punctuation and collapses space.
+// fold applies NFKC (full-width "ＦＵＮ" == "FUN", half-width "ｶﾞ" == "ガ"),
+// lowercases, unifies "&"/"and", drops punctuation and collapses space.
 func fold(s string) string {
-	s = strings.ToLower(s)
+	s = strings.ToLower(norm.NFKC.String(s))
 	s = strings.ReplaceAll(s, "&", " and ")
 	var b strings.Builder
 	for _, r := range s {

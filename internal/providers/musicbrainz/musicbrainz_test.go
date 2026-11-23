@@ -111,6 +111,40 @@ func TestArtworkFrontFirst(t *testing.T) {
 	}
 }
 
+func TestArtworkFallsBackToReleaseGroup(t *testing.T) {
+	const rel, rg = "33333333-3333-3333-3333-333333333333", "44444444-4444-4444-4444-444444444444"
+	var paths []string
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch {
+		case r.URL.Path == "/release/"+rel && r.URL.Query().Get("inc") == "release-groups":
+			w.Write([]byte(`{"id":"` + rel + `","release-group":{"id":"` + rg + `"}}`))
+		case r.URL.Path == "/release/"+rel:
+			http.NotFound(w, r)
+		case r.URL.Path == "/release-group/"+rg:
+			w.Write([]byte(`{"images":[{"front":true,"image":"g"}]}`))
+		default:
+			t.Errorf("unexpected %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	imgs, err := c.GetArtwork(context.Background(), rel)
+	if err != nil || len(imgs) != 1 || imgs[0].URL != "g" {
+		t.Fatalf("%v %v %v", imgs, err, paths)
+	}
+}
+
+func TestArtworkNoFallbackWhenReleaseHasImages(t *testing.T) {
+	n := 0
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.Write([]byte(`{"images":[{"front":true,"image":"f"}]}`))
+	})
+	if _, err := c.GetArtwork(context.Background(), "33333333-3333-3333-3333-333333333333"); err != nil || n != 1 {
+		t.Fatalf("err %v, %d requests", err, n)
+	}
+}
+
 func TestNewFromConfigContact(t *testing.T) {
 	if _, err := NewFromConfig(config.Config{}, Config{}); !errors.Is(err, providers.ErrNotConfigured) {
 		t.Fatalf("want ErrNotConfigured, got %v", err)

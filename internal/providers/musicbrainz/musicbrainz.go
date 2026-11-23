@@ -388,11 +388,34 @@ func (c *Client) LookupISRC(ctx context.Context, isrc string) ([]providers.Track
 	return tracks, nil
 }
 
-// GetArtwork queries the Cover Art Archive for a release MBID.
+// GetArtwork queries the Cover Art Archive for a release MBID. Many single
+// pressings have no images of their own while their release group does, so
+// when the release has none the group's cover is used instead.
 func (c *Client) GetArtwork(ctx context.Context, releaseMBID string) ([]providers.ImageRef, error) {
 	if !validID(releaseMBID) {
 		return nil, providers.ErrNotFound
 	}
+	imgs, err := c.coverArt(ctx, "/release/"+releaseMBID)
+	if !errors.Is(err, providers.ErrNotFound) && (err != nil || len(imgs) > 0) {
+		return imgs, err
+	}
+	var rel struct {
+		ReleaseGroup struct {
+			ID string `json:"id"`
+		} `json:"release-group"`
+	}
+	if err := c.get(ctx, c.cfg.BaseURL+"/release/"+releaseMBID+"?inc=release-groups&fmt=json", &rel); err != nil {
+		return nil, err
+	}
+	if !validID(rel.ReleaseGroup.ID) {
+		return nil, providers.ErrNotFound
+	}
+	return c.coverArt(ctx, "/release-group/"+rel.ReleaseGroup.ID)
+}
+
+// coverArt reads one Cover Art Archive listing (path is "/release/<id>" or
+// "/release-group/<id>"), front covers first.
+func (c *Client) coverArt(ctx context.Context, path string) ([]providers.ImageRef, error) {
 	var out struct {
 		Images []struct {
 			Front      bool              `json:"front"`
@@ -402,7 +425,7 @@ func (c *Client) GetArtwork(ctx context.Context, releaseMBID string) ([]provider
 			Thumbnails map[string]string `json:"thumbnails"`
 		} `json:"images"`
 	}
-	if err := c.get(ctx, c.cfg.CoverURL+"/release/"+releaseMBID, &out); err != nil {
+	if err := c.get(ctx, c.cfg.CoverURL+path, &out); err != nil {
 		return nil, err
 	}
 	var imgs []providers.ImageRef
