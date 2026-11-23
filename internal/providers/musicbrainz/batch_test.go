@@ -21,7 +21,7 @@ func batchClient(t *testing.T, h http.HandlerFunc) *Client {
 
 const mbA = "2d5bd5f2-d0fa-4dd8-ba72-c1fea94a0ae0"
 
-func TestArtistNamesKeepsLocalizedAliasesOnly(t *testing.T) {
+func TestArtistNamesLeavesOutLegalNames(t *testing.T) {
 	var query string
 	c := batchClient(t, func(w http.ResponseWriter, r *http.Request) {
 		query = r.URL.Query().Get("query")
@@ -40,7 +40,8 @@ func TestArtistNamesKeepsLocalizedAliasesOnly(t *testing.T) {
 		t.Fatalf("query %q", query)
 	}
 	ns := got[mbA]
-	if len(ns) != 3 || ns[0].Name != "Nightcord at 25:00" || !ns[0].Primary || ns[2].Lang != "zh-Hant" || ns[2].Primary {
+	if len(ns) != 4 || ns[0].Name != "Nightcord at 25:00" || !ns[0].Primary || ns[1].Lang != "" || !ns[1].Hint ||
+		ns[3].Lang != "zh-Hant" || ns[3].Primary || ns[3].Hint {
 		t.Fatalf("names %+v", ns)
 	}
 }

@@ -18,11 +18,11 @@ const maxArtists = 100 // ids per artist search (one page of results)
 
 func (c *Client) MaxArtists() int { return maxArtists }
 
-// ArtistNames returns each artist's aliases that carry a language
-// (GET /artist?query=arid:… OR arid:…). Aliases with no locale say nothing
-// about a language, search hints are not names, and a legal name is not what
-// the artist goes by (Sokudo! has "Aden Tirado", locale en, primary): all are
-// left out.
+// ArtistNames returns each artist's aliases (GET /artist?query=arid:… OR
+// arid:…), with the language where one is given and search hints marked. A
+// legal name is not what the artist goes by (Sokudo! has "Aden Tirado",
+// locale en, primary), and a name it is never known by must not route listens
+// to it: legal names are left out.
 func (c *Client) ArtistNames(ctx context.Context, ids []string) (map[string][]providers.LocalName, error) {
 	out := map[string][]providers.LocalName{}
 	var terms []string
@@ -55,13 +55,14 @@ func (c *Client) ArtistNames(ctx context.Context, ids []string) (map[string][]pr
 	for _, a := range res.Artists {
 		names := []providers.LocalName{}
 		for _, al := range a.Aliases {
-			if al.Locale == "" || strings.TrimSpace(al.Name) == "" || al.Type == "Search hint" || al.Type == "Legal name" {
+			if strings.TrimSpace(al.Name) == "" || al.Type == "Legal name" {
 				continue
 			}
 			names = append(names, providers.LocalName{
 				Lang:    strings.ReplaceAll(al.Locale, "_", "-"),
 				Name:    strings.TrimSpace(al.Name),
 				Primary: al.Primary != nil && *al.Primary,
+				Hint:    al.Type == "Search hint",
 			})
 		}
 		out[a.ID] = names

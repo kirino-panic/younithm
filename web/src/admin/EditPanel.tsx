@@ -21,8 +21,8 @@ const MAX_IMAGE = 8 << 20;
 
 // Edits a track, album or artist: name, image, artists, albums and catalogue
 // links. Nothing is sent until Save; each part is its own logged, undoable edit.
-export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, noAlbum = false, links, raw = [], onClose, onSaved }: {
-  kind: Kind; id: number; name: string; override?: string | null; image?: string; imageCustom?: boolean; credits?: Credit[]; releases?: { id: number; title: string; primary: boolean }[]; noAlbum?: boolean;
+export function EditPanel({ kind, id, name, override, image, imageCustom = false, credits, releases, noAlbum = false, releaseDate, links, raw = [], onClose, onSaved }: {
+  kind: Kind; id: number; name: string; override?: string | null; releaseDate?: string | null; image?: string; imageCustom?: boolean; credits?: Credit[]; releases?: { id: number; title: string; primary: boolean }[]; noAlbum?: boolean;
   links: Record<string, string>; raw?: string[]; onClose: () => void; onSaved: () => void;
 }) {
   const toast = useToast();
@@ -39,6 +39,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const [adding, setAdding] = useState<"artist" | "album" | null>(null);
   // The display name set by hand; empty means the naming order decides.
   const [title, setTitle] = useState(override || "");
+  const [date, setDate] = useState(releaseDate || "");
   const startCredits = (credits || []).map((c) => ({ id: c.id, name: c.name, join: c.join_phrase || "", credited: c.credited_name || "" }));
   const [artists, setArtists] = useState<CreditRow[]>(startCredits);
   const [albums, setAlbums] = useState<AlbumRow[]>((releases || []).map((r) => ({ id: r.id, title: r.title, primary: r.primary })));
@@ -155,6 +156,10 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         await endpoints.editEntity(kind, id, { display_name: title.trim() || null });
         done.push("name");
       }
+      if (kind === "release" && date.trim() !== (releaseDate || "")) {
+        await endpoints.editEntity(kind, id, { release_date: date.trim() || null });
+        done.push("date");
+      }
       if (newImage instanceof File) {
         await endpoints.setImage(kind, id, newImage);
         done.push("image");
@@ -234,6 +239,18 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             onChange={(e) => setTitle(e.target.value)} />
         </div>
       </section>
+      {kind === "release" && (
+        <section>
+          <div className="field">
+            <span className="field-label" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              Release date
+              <InfoTip label="About release date" text="A year, or a date like 2024-05 or 2024-05-17. Leave blank to let it be found automatically." />
+            </span>
+            <input className="input num" aria-label="Release date" value={date} placeholder="YYYY-MM-DD" inputMode="numeric"
+              onChange={(e) => setDate(e.target.value)} />
+          </div>
+        </section>
+      )}
 
       {kind !== "recording" && (
         <section>

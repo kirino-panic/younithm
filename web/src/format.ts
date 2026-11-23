@@ -7,11 +7,17 @@ export function fmtAgo(iso: string) {
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const d = new Date(iso);
+  const year = d.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined;
+  return d.toLocaleDateString(undefined, { year, month: "short", day: "numeric" });
 }
 
-export const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// The year shows only when it isn't this year's.
+export function fmtDate(iso: string) {
+  const d = new Date(iso);
+  const year = d.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined;
+  return d.toLocaleString(undefined, { year, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
 export function fmtDuration(ms?: number | null) {
   if (!ms) return "";

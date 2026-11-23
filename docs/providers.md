@@ -58,6 +58,7 @@ When the queue is idle (after an import, every 10 minutes, or when a language is
 
 - **Links artists across catalogues** using cached track answers. When two catalogues' credits for the same track leave exactly one unknown artist on each side, and one of them is ours by id, the other is linked to it.
 - **Fetches names** for each preferred language: MusicBrainz aliases with that locale, Apple Music names from a storefront that supports the language, and Spotify names via `Accept-Language`. Each is stored per source in `entity_name`.
+- **Imports MusicBrainz aliases.** Every alias of an artist holding a MusicBrainz id (search hints and names with no language included, legal names left out) is added as an artist alias, once per id (`alias_import`), so listens and searches under any of those names find the artist. An id two of our artists hold is skipped.
 
 The display name follows the source order chosen under display naming: the first source with a name wins, in the first preferred language it has. A hand rename always wins.
 

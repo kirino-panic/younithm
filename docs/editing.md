@@ -42,6 +42,8 @@ The resolver checks aliases before matching by name, at ingest and import. Alias
 
 A scrobble's album must be one its recording is on, unless the edit links it in the same step (`link_release`). Re-pointing a scrobble at a recording that isn't on its album drops the album. A recording's first album becomes primary. Removing a recording from its primary album promotes the earliest remaining one.
 
+An album's release date takes a year, a year and month, or a full date (`2024`, `2024-05`, `2024-05-17`). Cleared, it is filled again from the catalogues.
+
 "Apply to all tracks on album" credits every track on an album to the album's artists. It is one edit with one undo, and tracks already credited that way are left out. Enrichment treats each track it changed as edited by hand, so a catalogue's credits don't replace it.
 
 ## Bulk edit

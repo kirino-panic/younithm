@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var kindTable = map[string]string{KindArtist: "artist", KindRecording: "recording", KindRelease: "release"}
@@ -156,6 +157,9 @@ func (e *Editor) EditEntity(ctx context.Context, actor, kind string, id int64, e
 				if x == "" && ft == ftReq {
 					return nil, invalid("bad_value", "%s cannot be empty", name)
 				}
+				if name == "release_date" && x != "" && !validDate(x) {
+					return nil, invalid("bad_value", "use a year, or a date like 2024-05 or 2024-05-17")
+				}
 				if x != "" {
 					v = x
 				}
@@ -191,6 +195,16 @@ func (e *Editor) EditEntity(ctx context.Context, actor, kind string, id int64, e
 		return &draft{scope: "entity", entityType: kind, entityID: id,
 			summary: fmt.Sprintf("Edit %s %d", kind, id), changes: cs}, nil
 	})
+}
+
+// validDate accepts YYYY, YYYY-MM or YYYY-MM-DD with a real month and day.
+func validDate(s string) bool {
+	for _, layout := range []string{"2006", "2006-01", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil && t.Format(layout) == s {
+			return true
+		}
+	}
+	return false
 }
 
 // EditEntity is a helper to build an EntityEdit from a field map.

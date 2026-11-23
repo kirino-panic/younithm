@@ -181,9 +181,12 @@ type LocalizedNames interface {
 // Lang is a tag ("en", "zh-Hant"); Primary marks the catalogue's chosen name
 // for that language.
 type LocalName struct {
-	Lang    string
+	Lang    string // "" when the catalogue gives none
 	Name    string
 	Primary bool
+	// Hint marks a spelling meant only for finding the artist (MusicBrainz
+	// "search hint"), not a name to show.
+	Hint bool
 }
 
 // ArtistNamesLookup is an optional capability (MusicBrainz): the names by

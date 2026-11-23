@@ -353,7 +353,7 @@ export function AlbumPage() {
               </Tile>
             </div>
           </div>
-          {editing && <EditPanel kind="release" id={al.id} name={al.title} override={al.display_name} image={al.image} imageCustom={al.image_custom} credits={al.artists} links={al.links} onClose={() => setEditing(false)} onSaved={q.reload} />}
+          {editing && <EditPanel kind="release" id={al.id} name={al.title} override={al.display_name} releaseDate={al.date} image={al.image} imageCustom={al.image_custom} credits={al.artists} links={al.links} onClose={() => setEditing(false)} onSaved={q.reload} />}
         </div>
       );
     }}</Gate>

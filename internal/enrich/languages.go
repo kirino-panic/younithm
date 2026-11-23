@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"younithm/internal/identity"
 	"younithm/internal/names"
 	"younithm/internal/providers"
 )
@@ -53,6 +54,9 @@ func (m *Manager) NamePass(ctx context.Context) error {
 	langs := names.ReadLanguages(ctx, m.db, names.LanguagesKey)
 	if err := m.fillAliases(ctx, langs); err != nil && !skippable(err) {
 		return fmt.Errorf("artist names: %w", err)
+	}
+	if err := m.importAliases(ctx); err != nil && !skippable(err) {
+		return fmt.Errorf("artist aliases: %w", err)
 	}
 	for _, p := range []string{providers.AppleMusic, providers.Spotify} {
 		if err := m.fillCatalogueNames(ctx, p, langs); err != nil && !skippable(err) {
@@ -350,6 +354,9 @@ func (m *Manager) fillAliases(ctx context.Context, langs []string) error {
 			for _, lang := range langs {
 				best, score := providers.LocalName{}, 0
 				for _, n := range got[pid] {
+					if n.Hint || n.Lang == "" { // a name by language only
+						continue
+					}
 					s := langScore(lang, n.Lang) * 2
 					if n.Primary {
 						s++
@@ -364,6 +371,76 @@ func (m *Manager) fillAliases(ctx context.Context, langs []string) error {
 			}
 		}
 		if err := m.putNames(ctx, rows); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// importAliases reads every MusicBrainz alias of the artists holding a
+// MusicBrainz id into the alias table, once per id, so listens and searches
+// under any of those names find the artist. An id two of our artists hold is
+// skipped (which one the names belong to is unknown). A name another artist
+// goes by, or that is already an alias, is never taken (identity.AddAlias).
+func (m *Manager) importAliases(ctx context.Context) error {
+	mbp, ok := m.matcher.Providers.Get(providers.MusicBrainz)
+	if !ok {
+		return nil
+	}
+	lk, ok := mbp.(providers.ArtistNamesLookup)
+	if !ok {
+		return nil
+	}
+	for round := 0; round < 100; round++ {
+		rows, err := m.db.QueryContext(ctx, `
+SELECT l.provider_id, MIN(l.entity_id) FROM external_link l
+WHERE l.entity_type='artist' AND l.provider='musicbrainz' AND l.status IN ('confirmed','auto')
+  AND NOT EXISTS (SELECT 1 FROM alias_import i WHERE i.provider='musicbrainz' AND i.provider_id=l.provider_id)
+GROUP BY l.provider_id HAVING COUNT(DISTINCT l.entity_id)=1
+LIMIT ?`, lk.MaxArtists())
+		if err != nil {
+			return err
+		}
+		todo := map[string]int64{}
+		for rows.Next() {
+			var pid string
+			var a int64
+			if err := rows.Scan(&pid, &a); err != nil {
+				rows.Close()
+				return err
+			}
+			todo[pid] = a
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil || len(todo) == 0 {
+			return err
+		}
+		ids := make([]string, 0, len(todo))
+		for pid := range todo {
+			ids = append(ids, pid)
+		}
+		got, err := retrying(ctx, func() (map[string][]providers.LocalName, error) { return lk.ArtistNames(ctx, ids) })
+		if err != nil {
+			return err
+		}
+		tx, err := m.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		now := m.stamp(m.o.Now())
+		for pid, artist := range todo {
+			for _, n := range got[pid] {
+				if _, err := identity.AddAlias(ctx, tx, identity.KindArtist, artist, identity.ArtistAliasKey(n.Name)); err != nil {
+					tx.Rollback()
+					return err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO alias_import (provider, provider_id, fetched_at) VALUES ('musicbrainz', ?, ?)`, pid, now); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}
