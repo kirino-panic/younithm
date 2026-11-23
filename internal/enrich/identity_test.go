@@ -2028,3 +2028,49 @@ func TestAListenThatNamesItsReleaseIsMatchedFromTheTracklist(t *testing.T) {
 		t.Fatalf("release not read: %v", fz.asked)
 	}
 }
+
+// An album's artists get the catalogue's artist ids, paired by name; an id
+// another artist holds makes the two a merge candidate, and a differently
+// named credit is never paired.
+func TestAlbumArtistsGetTheCataloguesArtistIDs(t *testing.T) {
+	track := providers.Track{Provider: providers.Spotify, ProviderID: "spT", Title: "Song",
+		Artists: []providers.Artist{{ProviderID: "spSinger", Name: "Singer"}},
+		Releases: []providers.ReleaseRef{{ProviderID: "spAlb", Title: "Blue",
+			Artists: []providers.Artist{{ProviderID: "spBand", Name: "The Band"}, {ProviderID: "spOther", Name: "Somebody Else"}}}}}
+	sp := &catalogFake{name: providers.Spotify, byID: map[string]providers.Track{"spT": track}}
+	e := newIDEnv(t, sp)
+	e.listen(t, identity.Input{Artist: "Singer", Title: "Song", Album: "Blue", SpotifyTrackID: "spT",
+		AlbumArtists: []identity.Credit{{Name: "The Band"}, {Name: "Guest"}}})
+	e.run(t)
+	held := `SELECT COUNT(*) FROM external_link l JOIN artist a ON a.id=l.entity_id
+		WHERE l.entity_type='artist' AND l.provider='spotify' AND l.provider_id=? AND a.name=?`
+	if e.n(t, held, "spBand", "The Band") != 1 {
+		t.Fatal("the album artist did not get the catalogue's id")
+	}
+	if e.n(t, `SELECT COUNT(*) FROM external_link WHERE entity_type='artist' AND provider_id='spOther'`) != 0 {
+		t.Fatal("a differently named credit was paired with an album artist")
+	}
+}
+
+func TestAlbumArtistIDHeldElsewhereIsFlagged(t *testing.T) {
+	track := providers.Track{Provider: providers.Spotify, ProviderID: "spT", Title: "Song",
+		Artists:  []providers.Artist{{ProviderID: "spSinger", Name: "Singer"}},
+		Releases: []providers.ReleaseRef{{ProviderID: "spAlb", Title: "Blue", Artists: []providers.Artist{{ProviderID: "spBand", Name: "The Band"}}}}}
+	sp := &catalogFake{name: providers.Spotify, byID: map[string]providers.Track{"spT": track}}
+	e := newIDEnv(t, sp)
+	res, err := e.db.Exec(`INSERT INTO artist(name) VALUES ('Band, The')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := res.LastInsertId()
+	if _, err := e.db.Exec(`INSERT INTO external_link (entity_type, entity_id, provider, provider_id, match_method, confidence, status)
+		VALUES ('artist', ?, 'spotify', 'spBand', 'manual', 1, 'confirmed')`, other); err != nil {
+		t.Fatal(err)
+	}
+	e.listen(t, identity.Input{Artist: "Singer", Title: "Song", Album: "Blue", SpotifyTrackID: "spT",
+		AlbumArtists: []identity.Credit{{Name: "The Band"}}})
+	e.run(t)
+	if e.n(t, `SELECT COUNT(*) FROM merge_candidate WHERE kind='artist' AND (entity_id=?1 OR other_id=?1)`, other) != 1 {
+		t.Fatal("the album artist and the artist holding its id were not flagged")
+	}
+}

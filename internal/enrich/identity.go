@@ -687,6 +687,58 @@ func applyReleases(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Tr
 			if err := fillCreditedNames(ctx, tx, identity.KindRelease, target, t.Provider, rr.Artists); err != nil {
 				return err
 			}
+			if err := linkAlbumArtists(ctx, tx, target, t.Provider, rr.Artists); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// linkAlbumArtists gives the album's artists the ids the catalogue credits the
+// album to, so an album and the artist holding the same id are one artist
+// (docs/identity.md). A credit is paired with one of our album artists only by
+// an id that artist already holds or by an equal name, never by position: the
+// album link may have been found by a lookup and be another album. An id that
+// another of our artists holds becomes a merge candidate, as for tracks.
+func linkAlbumArtists(ctx context.Context, tx *sql.Tx, rel int64, provider string, artists []providers.Artist) error {
+	rows, err := tx.QueryContext(ctx, `SELECT a.id, a.name FROM release_artist ra JOIN artist a ON a.id=ra.artist_id
+		WHERE ra.release_id=? ORDER BY ra.position, a.id`, rel)
+	if err != nil {
+		return err
+	}
+	var ours []ourArtist
+	for rows.Next() {
+		var a ourArtist
+		if err := rows.Scan(&a.id, &a.name); err != nil {
+			rows.Close()
+			return err
+		}
+		ours = append(ours, a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(ours) == 0 {
+		return err
+	}
+	pairs, err := pairArtists(ctx, tx, ours, &providers.Track{Provider: provider, Artists: artists}, false)
+	if err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if p.pa.ProviderID == "" {
+			continue
+		}
+		ref := identity.Ref{Provider: provider, ID: p.pa.ProviderID, Method: match.MethodLookup}
+		// Our artist holds another id of this catalogue: it is a different artist.
+		conflict, err := identity.HasConflict(ctx, tx, identity.KindArtist, p.ours, []identity.Ref{ref})
+		if err != nil {
+			return err
+		}
+		if conflict {
+			continue
+		}
+		if err := attachOrFlag(ctx, tx, identity.KindArtist, p.ours, ref, "same provider artist id"); err != nil {
+			return err
 		}
 	}
 	return nil
