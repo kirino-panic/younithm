@@ -253,10 +253,10 @@ var displaySelect = `
 SELECT s.id, s.played_at,
   COALESCE(` + names.LineSQL(names.Recording, "s.recording_id") + `, s.raw_artist),
   (SELECT json_group_array(json_object('id', id, 'name', name, 'join_phrase', jp, 'credited_name', cn)) FROM (
-     SELECT a.id, a.name, COALESCE(ra.join_phrase, '') AS jp, COALESCE(ra.credited_name, '') AS cn FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
+     SELECT a.id, COALESCE(NULLIF(a.display_name, ''), a.name) AS name, COALESCE(ra.join_phrase, '') AS jp, COALESCE(ra.credited_name, '') AS cn FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
      WHERE ra.recording_id=s.recording_id ORDER BY ra.position, a.id)),
-  COALESCE(rec.title, s.raw_title),
-  COALESCE(rel.title, s.raw_album),
+  COALESCE(NULLIF(rec.display_name, ''), rec.title, s.raw_title),
+  COALESCE(NULLIF(rel.display_name, ''), rel.title, s.raw_album),
   s.source, s.recording_id, s.release_id
 FROM scrobble s
 LEFT JOIN recording rec ON rec.id = s.recording_id
@@ -302,9 +302,10 @@ func (h *Handler) listScrobbles(w http.ResponseWriter, r *http.Request) {
 		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(v) + "%"
 		where = append(where, `(s.raw_artist LIKE ? ESCAPE '\' OR s.raw_title LIKE ? ESCAPE '\' OR s.raw_album LIKE ? ESCAPE '\'
 		 OR rec.title LIKE ? ESCAPE '\' OR rel.title LIKE ? ESCAPE '\'
+		 OR rec.display_name LIKE ? ESCAPE '\' OR rel.display_name LIKE ? ESCAPE '\'
 		 OR EXISTS (SELECT 1 FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
-		            WHERE ra.recording_id=s.recording_id AND a.name LIKE ? ESCAPE '\'))`)
-		for i := 0; i < 6; i++ {
+		            WHERE ra.recording_id=s.recording_id AND (a.name LIKE ? ESCAPE '\' OR a.display_name LIKE ? ESCAPE '\')))`)
+		for i := 0; i < 9; i++ {
 			args = append(args, like)
 		}
 	}

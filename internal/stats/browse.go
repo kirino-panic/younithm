@@ -178,7 +178,8 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	ent := browseEntity[kind]
 	inNames := nameMatches(ent[0], "t.id")
 	if ent[1] != "" {
-		inNames += ` OR EXISTS (SELECT 1 FROM ` + ent[1] + ` AND (` + nameMatches("artist", "ra.artist_id") + `))`
+		inNames += ` OR EXISTS (SELECT 1 FROM ` + ent[1] + ` AND (` + nameMatches("artist", "ra.artist_id") + `
+  OR EXISTS (SELECT 1 FROM artist sa WHERE sa.id = ra.artist_id AND sa.name LIKE ?1 ESCAPE '\')))`
 	}
 	if kind == "tracks" {
 		inNames += ` OR EXISTS (SELECT 1 FROM release d WHERE d.id = t.album_id AND d.display_name LIKE ?1 ESCAPE '\')`

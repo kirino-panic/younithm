@@ -487,3 +487,39 @@ func TestUserListensPrivateList(t *testing.T) {
 		}
 	}
 }
+
+func TestListShowsAndSearchesDisplayNames(t *testing.T) {
+	h, d := setup(t)
+	for _, q := range []string{
+		`INSERT INTO artist(id,name,display_name) VALUES (1,'Stored Artist','Shown Artist')`,
+		`INSERT INTO recording(id,title,display_name) VALUES (1,'Stored Song','Shown Song')`,
+		`INSERT INTO release(id,title,display_name) VALUES (1,'Stored Album','Shown Album')`,
+		`INSERT INTO recording_artist(recording_id,artist_id) VALUES (1,1)`,
+		`INSERT INTO scrobble(played_at,recording_id,release_id,raw_artist,raw_title,raw_album) VALUES ('2026-06-15T09:00:00.000Z',1,1,'raw','raw','raw')`,
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{"shown%20artist", "shown%20song", "shown%20album", "stored%20song"} {
+		w := do(h, "GET", "/api/v1/scrobbles?q="+q, "", "")
+		var list struct {
+			Items []struct {
+				Artist  string `json:"artist"`
+				Title   string `json:"title"`
+				Album   string `json:"album"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+			} `json:"items"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &list)
+		if len(list.Items) != 1 {
+			t.Fatalf("q=%s: %s", q, w.Body.String())
+		}
+		it := list.Items[0]
+		if it.Artist != "Shown Artist" || it.Title != "Shown Song" || it.Album != "Shown Album" || len(it.Artists) != 1 || it.Artists[0].Name != "Shown Artist" {
+			t.Fatalf("q=%s: %+v", q, it)
+		}
+	}
+}

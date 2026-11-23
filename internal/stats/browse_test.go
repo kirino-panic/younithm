@@ -212,3 +212,33 @@ func TestArtistTrackList(t *testing.T) {
 		}
 	}
 }
+
+func TestLibrarySearchShowsDisplayNames(t *testing.T) {
+	_, d := setup(t)
+	seed(t, d)
+	exec(t, d, `UPDATE artist SET display_name = 'Mine Artist' WHERE id = 1`)
+	exec(t, d, `UPDATE recording SET display_name = 'Mine Song' WHERE id = 1`)
+	exec(t, d, `UPDATE release SET display_name = 'Mine Album' WHERE id = 1`)
+	exec(t, d, `INSERT INTO recording_release(recording_id,release_id,is_primary) VALUES (1,1,1)`)
+	exec(t, d, `INSERT INTO release_artist(release_id,artist_id) VALUES (1,1)`)
+	h := New(d).WithNames(names.New(d, d))
+	r := chi.NewRouter()
+	h.MountLibrary(r, nil, nil)
+	type out struct {
+		Total int64        `json:"total"`
+		Items []browseItem `json:"items"`
+	}
+	for _, q := range []string{"mine", "matched", "song", "album"} {
+		var tr out
+		get(t, r, "/library/tracks?q="+q, &tr)
+		if tr.Total != 1 || tr.Items[0].Name != "Mine Song" || *tr.Items[0].Artist != "Mine Artist" || *tr.Items[0].Album != "Mine Album" {
+			t.Fatalf("q=%s: %+v", q, tr.Items)
+		}
+	}
+	var a, al out
+	get(t, r, "/library/artists?q=matched", &a)
+	get(t, r, "/library/albums?q=mine", &al)
+	if a.Total != 1 || a.Items[0].Name != "Mine Artist" || al.Total != 1 || al.Items[0].Name != "Mine Album" {
+		t.Fatalf("artists %+v albums %+v", a.Items, al.Items)
+	}
+}
