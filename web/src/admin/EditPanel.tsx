@@ -418,20 +418,18 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 
       {names.length > 0 && (
         <section>
-          <button className="btn btn-plain" style={{ width: "100%", justifyContent: "space-between", padding: 0 }} onClick={() => setAkaOpen((o) => !o)} aria-expanded={akaOpen}>
-            <span className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>
+          <button className="btn btn-plain" style={{ width: "100%", gap: 8, padding: 0 }} onClick={() => setAkaOpen((o) => !o)} aria-expanded={akaOpen}>
+            <span className="section-label" style={{ margin: 0, flex: 1, display: "flex", alignItems: "center", gap: 4 }}>
               Also known as
               <InfoTip label="About also known as" text="Other names this item goes by. Search-only names help you find it but never match a scrobble to it. Removed names aren't added back." />
             </span>
-            <ChevronRight size={16} style={{ transform: akaOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
+            {akaOpen && <span className="edit-head" aria-hidden>Search only</span>}
+            <span style={{ width: 32, display: "flex", justifyContent: "center" }}>
+              <ChevronRight size={16} style={{ transform: akaOpen ? "rotate(90deg)" : undefined, transition: "transform var(--dur)" }} />
+            </span>
           </button>
           {akaOpen && (
             <div className="vlist" style={{ gap: 4, marginTop: 8 }}>
-              <div className="edit-head" aria-hidden>
-                <span className="grow" />
-                <span>Search only</span>
-                <span style={{ width: 32 }} />
-              </div>
               {names.map((n) => {
                 const ed = nameEdits[n.name];
                 const removed = ed === "removed";

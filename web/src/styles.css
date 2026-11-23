@@ -616,8 +616,7 @@ a.metric:hover { background: var(--fill-2, var(--fill)); }
 .vlist { display: grid; grid-template-columns: minmax(0, 1fr); }
 .edit-row { display: flex; gap: 8px; align-items: center; min-height: 36px; }
 .edit-row > .grow { flex: 1; min-width: 0; }
-.edit-head { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--label-2); }
-.edit-head > .grow { flex: 1; }
+.edit-head { font-size: 12px; font-weight: 400; color: var(--label-2); }
 .edit-row.removed > .grow { text-decoration: line-through; color: var(--label-3); }
 .edit-add { justify-self: start; padding-left: 0; padding-right: 0; color: var(--accent); background: none; border-color: transparent; }
 .edit-add:hover { background: none; text-decoration: underline; }
