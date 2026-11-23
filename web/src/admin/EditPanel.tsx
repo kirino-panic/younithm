@@ -282,7 +282,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   };
 
   return (
-    <Sheet wide divided title={`Edit ${LABELS[kind]}`} onClose={onClose}
+    <Sheet wide title={`Edit ${LABELS[kind]}`} onClose={onClose}
       footer={<>
         <span className="foot-start" style={{ display: "flex", gap: 4 }}>
           <button className="btn btn-plain" onClick={() => setMerging(true)}>Merge…</button>
@@ -293,7 +293,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" disabled={busy} onClick={save}>Save</button>
       </>}>
-      <section>
+      <section className="vlist" style={{ gap: "var(--s4)" }}>
         <div className="field">
           <span className="field-label" style={{ display: "flex", alignItems: "center", gap: 4 }}>
             Display name
@@ -302,9 +302,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
           <input className="input" aria-label="Display name" value={title} placeholder={override ? "Default name" : name}
             onChange={(e) => setTitle(e.target.value)} />
         </div>
-      </section>
-      {kind === "release" && (
-        <section>
+        {kind === "release" && (
           <div className="field">
             <span className="field-label" style={{ display: "flex", alignItems: "center", gap: 4 }}>
               Release date
@@ -313,8 +311,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             <input className="input num" aria-label="Release date" value={date} placeholder="YYYY-MM-DD" inputMode="numeric"
               onChange={(e) => setDate(e.target.value)} />
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {kind !== "recording" && (
         <section>
