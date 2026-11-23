@@ -801,6 +801,7 @@ a.search-all:hover { color: var(--accent); }
 
 /* Names in a pick dialog's summary: links that show details on hover. */
 .pick-summary { flex: 1; min-width: 0; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.3em; }
+.pick-swap { height: 26px; width: 26px; align-self: center; color: var(--label-2); }
 .pick-chip { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .pick-chip-name { color: var(--label); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-decoration-color: var(--sep-strong); text-underline-offset: 2px; }
 .pick-chip-name:hover { color: var(--accent); text-decoration-color: currentColor; }

@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, RefreshCw, Star, Users, X } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight, ExternalLink, Plus, RefreshCw, Star, Users, X } from "lucide-react";
 import { endpoints, ApiError, withBase, type AliasEntry, type Credit, type CreditIn, type MergeCandidate } from "../api";
 import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, useToast } from "../ui";
 
@@ -36,6 +36,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const navigate = useNavigate();
   const [mergeInto, setMergeInto] = useState<MergeCandidate | null>(null);
   const [merging, setMerging] = useState(false);
+  // Reversed: the picked entry folds into this one instead.
+  const [reversed, setReversed] = useState(false);
   // Off: merge just what is here now; later listens under this name stay apart.
   const [remember, setRemember] = useState(true);
   const [splitting, setSplitting] = useState(false);
@@ -87,10 +89,26 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
 
   // Folds this entry into the picked one, then shows the one that's kept. The
   // merged-away page is replaced in history, so Back skips it (it's gone).
+  // Reversed, the picked one folds into this one and this page stays.
   const merge = async () => {
     if (!mergeInto) return;
     setBusy(true); setErr("");
     try {
+      if (reversed) {
+        const res = await endpoints.merge(kind, mergeInto.id, id, !remember);
+        onClose();
+        onSaved();
+        toast({
+          text: `Merged ${mergeInto.name} into ${override || name}`,
+          action: {
+            label: "Undo",
+            run: () => endpoints.undo(res.edit_id)
+              .then(onSaved)
+              .catch((e) => toast({ text: e instanceof ApiError ? e.message : "Couldn't undo." })),
+          },
+        });
+        return;
+      }
       const res = await endpoints.merge(kind, id, mergeInto.id, !remember);
       onClose();
       navigate(ROUTES[kind] + mergeInto.id, { replace: true });
@@ -511,8 +529,12 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
       {merging && (
         <PickDialog kind={kind} title={`Merge ${LABELS[kind]}`} busy={busy} err={err}
           load={(q) => endpoints.mergeCandidates(kind, id, q)} action="Merge" danger
-          summary={(c) => <>Merge <PickChip kind={kind} entry={self} /> into <PickChip kind={kind} entry={c} /></>}
-          onCancel={() => { setMerging(false); setMergeInto(null); setErr(""); setRemember(true); }}
+          summary={(c) => <>
+            Merge <PickChip kind={kind} entry={reversed ? c : self} /> into <PickChip kind={kind} entry={reversed ? self : c} />
+            <button type="button" className="btn btn-plain btn-icon pick-swap" title="Reverse" aria-label="Reverse merge direction"
+              aria-pressed={reversed} onClick={() => setReversed((r) => !r)}><ArrowLeftRight size={15} /></button>
+          </>}
+          onCancel={() => { setMerging(false); setMergeInto(null); setErr(""); setRemember(true); setReversed(false); }}
           selected={mergeInto} onSelect={setMergeInto} onConfirm={merge}
           options={
             <div className="edit-row">
