@@ -446,7 +446,6 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             Links
             {kind !== "artist" && <InfoTip label="About refresh" text="Refetches metadata from providers and attempts to fill in data that might be missing." />}
           </span>
-          {kind !== "artist" && <button className="btn btn-plain" style={{ margin: "-6px 0" }} onClick={refresh}><RefreshCw size={15} /> Refresh</button>}
         </div>
         <div className="vlist" style={{ gap: 4 }}>
           {PROVIDERS.map(([p, label]) => {
@@ -474,6 +473,7 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
             );
           })}
         </div>
+        {kind !== "artist" && <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={refresh}><RefreshCw size={15} /> Refresh metadata</button>}
       </section>
 
       <section>
