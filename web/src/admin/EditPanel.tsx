@@ -9,7 +9,7 @@ const LABELS: Record<Kind, string> = { recording: "track", release: "album", art
 
 // Names are matched lowercased with spaces collapsed, so only capitalization
 // and spacing can change without making it a different name.
-const SPELLING_ONLY = "Only capitalization and spacing can change. Add a different name as a new one.";
+const SPELLING_ONLY = "Capitalization and spacing only. Otherwise, add a new alias.";
 const normName = (s: string) => s.trim().toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 // A track's name key is "artist<US>title"; the title is the part written out.
 const titlePart = (kind: string, key: string) => kind === "recording" ? key.slice(key.lastIndexOf("\x1f") + 1) : key;

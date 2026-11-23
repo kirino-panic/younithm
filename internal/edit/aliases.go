@@ -271,7 +271,7 @@ func (e *Editor) SetAliasSpelling(ctx context.Context, actor, kind string, id in
 		want = name[i+len(keySep):]
 	}
 	if Norm(display) != want {
-		return nil, invalid("not_same_name", "only capitalization and spacing can change; add a different name as a new one")
+		return nil, invalid("not_same_name", "capitalization and spacing only; otherwise, add a new alias")
 	}
 	return e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
 		if _, err := e.entityExists(ctx, tx, kind, id); err != nil {
