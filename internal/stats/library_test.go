@@ -64,7 +64,7 @@ func TestArtistPage(t *testing.T) {
 	if len(a.AppearsOn) != 0 { // the feature is on no album
 		t.Fatalf("appears on %+v", a.AppearsOn)
 	}
-	if len(a.Chart.Month) != 30 || len(a.Chart.Year) != 12 || len(a.Chart.All) != 1 || a.Chart.Month[29].Plays != 1 {
+	if len(a.Chart.Month) != 30 || len(a.Chart.Year) != 12 || len(a.Chart.All) != 2 || a.Chart.Month[29].Plays != 1 {
 		t.Fatalf("chart %+v", a.Chart)
 	}
 }
@@ -189,5 +189,19 @@ func TestArtistPageAppearsOnAlbums(t *testing.T) {
 	if len(a.AppearsOn) != 2 || a.AppearsOn[0].ID != 3 || a.AppearsOn[0].Plays != 1 || a.AppearsOn[0].Artist != "Guest" ||
 		a.AppearsOn[1].ID != 2 || a.AppearsOn[1].Artist != "Other Spelling" {
 		t.Fatalf("appears on %+v", a.AppearsOn)
+	}
+}
+
+func TestChartAllSpansUserYears(t *testing.T) {
+	h, d := librarySetupDB(t)
+	// Another track, played years before anything on this artist.
+	exec(t, d, `INSERT INTO recording(id,title) VALUES (3,'Old')`)
+	exec(t, d, `INSERT INTO scrobble(played_at,recording_id,raw_artist,raw_title) VALUES ('2023-03-01T09:00:00.000Z',3,'x','y')`)
+	var a struct {
+		Chart chart `json:"chart"`
+	}
+	get(t, h, "/artists/1", &a)
+	if len(a.Chart.All) != 4 || a.Chart.All[0].Plays != 0 || a.Chart.All[3].Plays != 3 {
+		t.Fatalf("all %+v", a.Chart.All)
 	}
 }

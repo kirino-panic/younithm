@@ -128,10 +128,17 @@ WHERE +s.user_id = 1 AND `+where+` GROUP BY 1 ORDER BY 1`, args...)
 		k := m.AddDate(0, -i, 0).Format("2006-01")
 		c.Year = append(c.Year, point{k, perMonth[k]})
 	}
+	// All spans every year the user has listened in, not just this entity's.
+	var userFirst sql.NullString
+	if err := h.read.QueryRowContext(ctx, `SELECT MIN(played_at) FROM scrobble WHERE user_id = 1`).Scan(&userFirst); err != nil {
+		return chart{}, err
+	}
 	startYear := now.Year()
-	if len(first) >= 4 {
-		if y, err := strconv.Atoi(first[:4]); err == nil && y < startYear {
-			startYear = y
+	for _, f := range []string{first, userFirst.String} {
+		if len(f) >= 4 {
+			if y, err := strconv.Atoi(f[:4]); err == nil && y < startYear {
+				startYear = y
+			}
 		}
 	}
 	for y := startYear; y <= now.Year(); y++ {
