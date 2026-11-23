@@ -53,6 +53,9 @@ type NowPlaying struct {
 	enabled func() bool
 	pick    func() (NowPlayingTrack, bool)
 	fakeCur *npEntry
+	// scrobbles counts listens submitted since start, so streams can tell
+	// pages a new one is in (their recent and top lists are stale).
+	scrobbles uint64
 }
 
 func NewNowPlaying() *NowPlaying {
@@ -149,6 +152,20 @@ func (n *NowPlaying) Get(user int64) NowPlayingView {
 	t := e.track
 	return NowPlayingView{true, &t, e.source, e.startedAt.UTC().Format(TimeFormat),
 		e.expiresAt.UTC().Format(TimeFormat), prog}
+}
+
+// Scrobbled tells streams that new listens were stored.
+func (n *NowPlaying) Scrobbled() {
+	n.mu.Lock()
+	n.scrobbles++
+	n.mu.Unlock()
+	n.notify()
+}
+
+func (n *NowPlaying) scrobbleCount() uint64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.scrobbles
 }
 
 // Subscribe returns a channel pinged on every change and a cancel func.

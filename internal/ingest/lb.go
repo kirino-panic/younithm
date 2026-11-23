@@ -169,6 +169,9 @@ func (h *Handler) submitListens(w http.ResponseWriter, r *http.Request) {
 	if req.ListenType == "single" {
 		h.np.ClearIfMatches(uid, batch[0].Artist, batch[0].Title)
 	}
+	if acc > 0 {
+		h.np.Scrobbled()
+	}
 	writeJSON(w, 200, map[string]any{"status": "ok", "accepted": acc, "duplicates": dup})
 }
 

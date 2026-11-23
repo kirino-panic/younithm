@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -199,6 +200,47 @@ func TestNowPlayingFinders(t *testing.T) {
 	if tr := h.np.Get(1).Track; tr.Title != "Second" || tr.Image != "https://second" {
 		t.Fatalf("stale cover: %+v", tr)
 	}
+}
+
+func TestStreamTellsOfNewScrobbles(t *testing.T) {
+	h, _ := setup(t)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/v1/now-playing/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	lines := make(chan string)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+	wait := func(want string) {
+		t.Helper()
+		timeout := time.After(5 * time.Second)
+		for {
+			select {
+			case l, ok := <-lines:
+				if !ok {
+					t.Fatalf("stream closed before %q", want)
+				}
+				if l == want {
+					return
+				}
+			case <-timeout:
+				t.Fatalf("no %q", want)
+			}
+		}
+	}
+	wait("event: now-playing") // the initial state
+	if w := do(h, "POST", "/1/submit-listens", single(time.Now().Unix(), "A", "T"), "tok"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	wait("event: scrobble")
 }
 
 func TestNowPlayingExpiry(t *testing.T) {

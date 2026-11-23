@@ -178,7 +178,13 @@ func (h *Handler) streamNowPlaying(w http.ResponseWriter, r *http.Request) {
 	ch, cancel := h.np.Subscribe()
 	defer cancel()
 	var last string
+	seen := h.np.scrobbleCount()
 	send := func() {
+		defer fl.Flush()
+		if n := h.np.scrobbleCount(); n != seen {
+			seen = n
+			fmt.Fprint(w, "event: scrobble\ndata: {}\n\n")
+		}
 		v := h.np.Get(1)
 		b, _ := json.Marshal(v)
 		// progress_ms changes every call; compare on the identity of the state.
@@ -191,7 +197,6 @@ func (h *Handler) streamNowPlaying(w http.ResponseWriter, r *http.Request) {
 		}
 		last = key
 		fmt.Fprintf(w, "event: now-playing\ndata: %s\n\n", b)
-		fl.Flush()
 	}
 	send()
 	tick := time.NewTicker(15 * time.Second)

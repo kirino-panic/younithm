@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { BarChart3, UserRound, CalendarDays, Clock, ListOrdered, Play, Minus, SlidersHorizontal, Type, type LucideIcon } from "lucide-react";
-import { endpoints, withBase, type NowPlaying, type Range, type TopItem, type TopKind } from "../api";
+import { endpoints, type Range, type TopItem, type TopKind } from "../api";
+import { useNow, useNowPlaying, useOnScrobble } from "./live";
 import { fmtAgo, fmtNum, ranks } from "../format";
 import { Cover, Segmented, useData } from "../ui";
 import { usePage } from "./PageContext";
@@ -146,23 +147,7 @@ function Empty({ children = "No listens yet" }: { children?: ReactNode }) {
 // ---------- Now playing ----------
 
 function NowPlayingTile({ compact }: { compact: boolean }) {
-  const [np, setNp] = useState<NowPlaying | null>(null);
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let poll: number | undefined;
-    endpoints.nowPlaying().then(setNp).catch(() => setNp({ playing: false }));
-    try {
-      es = new EventSource(withBase("/api/v1/now-playing/stream"));
-      const on = (e: MessageEvent) => { try { setNp(JSON.parse(e.data)); } catch { /* ignore */ } };
-      es.addEventListener("now-playing", on);
-      es.onmessage = on;
-      es.onerror = () => {
-        es?.close();
-        poll = window.setInterval(() => endpoints.nowPlaying().then(setNp).catch(() => {}), 15000);
-      };
-    } catch { /* no SSE */ }
-    return () => { es?.close(); window.clearInterval(poll); };
-  }, []);
+  const { np, at } = useNowPlaying();
 
   // With nothing playing, show the most-played track of the last seven days of
   // listening: the past week, or if that is empty, the week up to the newest listen.
@@ -170,11 +155,15 @@ function NowPlayingTile({ compact }: { compact: boolean }) {
     const recent = (await endpoints.top("tracks", "week", 1)).items[0];
     return recent || (await endpoints.top("tracks", "latest_week", 1)).items[0];
   }, []);
+  useOnScrobble(fav.reload);
   const f = fav.data;
   const playing = np?.track;
   const tr = playing ? { title: playing.title, sub: `${playing.artist}${playing.album && !compact ? ` · ${playing.album}` : ""}`, image: playing.image, cover: playing.album || playing.title, to: playing.recording_id ? `/track/${playing.recording_id}` : "" }
     : f ? { title: f.name, sub: f.artist || "", image: f.image, cover: f.name, to: f.id ? `/track/${f.id}` : "" } : null;
-  const pct = playing?.duration_ms && np?.progress_ms ? Math.min(100, (np.progress_ms / playing.duration_ms) * 100) : 0;
+  // The server sends progress once per track; count on from when it arrived.
+  const now = useNow(!!playing?.duration_ms);
+  const progress = playing ? (np?.progress_ms ?? 0) + Math.max(0, now - at) : 0; // 0 is left out of the JSON
+  const pct = playing?.duration_ms && progress ? Math.min(100, (progress / playing.duration_ms) * 100) : 0;
   return (
     <>
       <Title>{playing || !np ? "Now playing" : "Current favorite"}</Title>
@@ -363,7 +352,8 @@ const RECENT_FETCH = 30;
 function RecentTile({ t }: { t: TileDef }) {
   const compact = isCompact(t);
   const minRow = compact ? RECENT_MIN_ROW.compact : RECENT_MIN_ROW.comfortable;
-  const { data, error } = useData(() => endpoints.recent(RECENT_FETCH), []);
+  const { data, error, reload } = useData(() => endpoints.recent(RECENT_FETCH), []);
+  useOnScrobble(reload);
   const ref = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(0); // 0 until measured
   useEffect(() => {
