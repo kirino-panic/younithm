@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // Alias keys. They must equal the keys internal/edit writes (a test asserts
@@ -21,12 +22,20 @@ func RecordingAliasKey(artist, title string) string { return Norm(artist) + keyS
 func ReleaseAliasKey(title string) string { return Norm(title) }
 
 // AddAlias records key as another name of entity id, so later raw matching
-// finds it. It returns whether a row was added. It never repoints an alias
+// finds it. written is the name as written (a track's title for a recording);
+// it fills in the spelling of an alias this entity already has without one,
+// and never replaces a spelling. It returns whether a row was added. It never repoints an alias
 // that already exists, and it skips a name that another entity already holds
 // as its own canonical name (an alias would hijack that entity's listens).
-func AddAlias(ctx context.Context, q DB, kind string, id int64, key string) (bool, error) {
+func AddAlias(ctx context.Context, q DB, kind string, id int64, key, written string) (bool, error) {
 	if key == "" || key == keySep {
 		return false, nil
+	}
+	written = strings.TrimSpace(written)
+	if written != "" {
+		if _, err := q.ExecContext(ctx, `UPDATE alias SET display=? WHERE kind=? AND raw_string=? AND entity_id=? AND display IS NULL`, written, kind, key, id); err != nil {
+			return false, err
+		}
 	}
 	var n int
 	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM alias WHERE kind=? AND raw_string=?`, kind, key).Scan(&n); err != nil {
@@ -63,7 +72,7 @@ func AddAlias(ctx context.Context, q DB, kind string, id int64, key string) (boo
 	if n > 0 {
 		return false, nil
 	}
-	res, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO alias (kind, raw_string, entity_id) VALUES (?,?,?)`, kind, key, id)
+	res, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO alias (kind, raw_string, entity_id, display) VALUES (?,?,?,NULLIF(?, ''))`, kind, key, id, written)
 	if err != nil {
 		return false, err
 	}

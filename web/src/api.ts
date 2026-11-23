@@ -180,7 +180,7 @@ export interface SecretMeta { name: string; set: boolean; hint?: string; updated
 
 // ---------- Endpoints ----------
 
-export interface AliasEntry { name: string; search_only: boolean; source?: string }
+export interface AliasEntry { name: string; search_only: boolean; source?: string; display?: string }
 
 export const endpoints = {
   me: () => api.get<Me>("/api/v1/auth/me"),
@@ -283,6 +283,9 @@ export const endpoints = {
   // Removed names stay removed: no catalogue or listen adds them back.
   addAlias: (kind: string, id: number, name: string, search_only: boolean) =>
     api.post<EditResult & { search_only: boolean }>(`/api/v1/admin/entities/${kind}/${id}/aliases`, { name, search_only }),
+  // Capitalization and spacing of a name; the name itself stays the same.
+  setAliasSpelling: (kind: string, id: number, name: string, display: string) =>
+    api.put<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases/spelling`, { name, display }),
   removeAlias: (kind: string, id: number, name: string) => api.post<EditResult>(`/api/v1/admin/entities/${kind}/${id}/aliases/remove`, { name }),
   // The album's artists onto every track on it, as one undoable edit.
   applyAlbumArtists: (rel: number) => api.post<EditResult>(`/api/v1/admin/releases/${rel}/apply-artists`),

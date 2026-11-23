@@ -139,7 +139,7 @@ func otherNameChanges(ctx context.Context, tx Querier, kind string, from, into i
 func redirectEntity(ctx context.Context, tx Querier, kind string, fromRow Row, from, into int64) ([]Change, error) {
 	var cs []Change
 	// Aliases first (keys are derived from `from` as it is now).
-	keys, err := aliasKeys(ctx, tx, kind, from, fromRow)
+	keys, spell, err := aliasNames(ctx, tx, kind, from, fromRow)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func redirectEntity(ctx context.Context, tx Querier, kind string, fromRow Row, f
 	for _, a := range old {
 		cs = append(cs, Change{Table: "alias", Key: Row{"id": a["id"]}, Before: Row{"entity_id": from}, After: Row{"entity_id": into}})
 	}
-	ac, err := aliasChanges(ctx, tx, kind, keys, into, true)
+	ac, err := aliasChanges(ctx, tx, kind, keys, spell, into, true)
 	if err != nil {
 		return nil, err
 	}

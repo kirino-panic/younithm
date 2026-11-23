@@ -83,7 +83,7 @@ func applyTrack(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Track
 				}
 			}
 		}
-		if _, err := identity.AddAlias(ctx, tx, identity.KindArtist, p.ours, identity.ArtistAliasKey(p.pa.Name)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindArtist, p.ours, identity.ArtistAliasKey(p.pa.Name), p.pa.Name); err != nil {
 			return err
 		}
 	}
@@ -93,17 +93,17 @@ func applyTrack(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Track
 		names = append(names, a.Name)
 	}
 	for _, n := range names {
-		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(n, t.Title)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(n, t.Title), t.Title); err != nil {
 			return err
 		}
 	}
 	if len(names) > 1 {
-		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(strings.Join(names, ", "), t.Title)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(strings.Join(names, ", "), t.Title), t.Title); err != nil {
 			return err
 		}
 	}
 	for _, a := range ours { // the names we use, with the provider's title
-		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(a.name, t.Title)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(a.name, t.Title), t.Title); err != nil {
 			return err
 		}
 	}
@@ -422,7 +422,7 @@ func replaceCredits(ctx context.Context, tx *sql.Tx, recID int64, t *providers.T
 		if _, err := tx.ExecContext(ctx, `DELETE FROM recording_artist WHERE recording_id=? AND artist_id=?`, recID, o.id); err != nil {
 			return err
 		}
-		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(o.name, title)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindRecording, recID, identity.RecordingAliasKey(o.name, title), title); err != nil {
 			return err
 		}
 		if err := dropIfUnused(ctx, tx, o.id); err != nil {
@@ -648,7 +648,7 @@ func applyReleases(ctx context.Context, tx *sql.Tx, recID int64, t *providers.Tr
 		if err := flagSameAlbumVariants(ctx, tx, target, ours, rr.Title, upc, alb, albums); err != nil {
 			return err
 		}
-		if _, err := identity.AddAlias(ctx, tx, identity.KindRelease, target, identity.ReleaseAliasKey(rr.Title)); err != nil {
+		if _, err := identity.AddAlias(ctx, tx, identity.KindRelease, target, identity.ReleaseAliasKey(rr.Title), rr.Title); err != nil {
 			return err
 		}
 		date := rr.Date

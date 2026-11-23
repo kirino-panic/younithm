@@ -133,7 +133,7 @@ func TestAliasKeysMatchEditKeys(t *testing.T) {
 func TestRecordingAliasFindsTranslatedTitle(t *testing.T) {
 	d := setup(t)
 	rec, _, _ := resolve(t, d, sparse("Utada Hikaru", "First Love", ""))
-	ok, err := AddAlias(ctxBg(), d, "recording", rec, RecordingAliasKey("宇多田ヒカル", "First Love (Remaster)"))
+	ok, err := AddAlias(ctxBg(), d, "recording", rec, RecordingAliasKey("宇多田ヒカル", "First Love (Remaster)"), "First Love (Remaster)")
 	if err != nil || !ok {
 		t.Fatalf("alias: %v %v", ok, err)
 	}
@@ -143,10 +143,10 @@ func TestRecordingAliasFindsTranslatedTitle(t *testing.T) {
 	}
 	// An alias never repoints an existing one, and never hijacks another entity's own name.
 	other, _, _ := resolve(t, d, sparse("Someone", "Else", ""))
-	if ok, _ := AddAlias(ctxBg(), d, "recording", other, RecordingAliasKey("宇多田ヒカル", "First Love (Remaster)")); ok {
+	if ok, _ := AddAlias(ctxBg(), d, "recording", other, RecordingAliasKey("宇多田ヒカル", "First Love (Remaster)"), "First Love (Remaster)"); ok {
 		t.Fatal("alias was repointed")
 	}
-	if ok, _ := AddAlias(ctxBg(), d, "recording", other, RecordingAliasKey("Utada Hikaru", "First Love")); ok {
+	if ok, _ := AddAlias(ctxBg(), d, "recording", other, RecordingAliasKey("Utada Hikaru", "First Love"), "First Love"); ok {
 		t.Fatal("alias hijacked another recording's own name")
 	}
 }

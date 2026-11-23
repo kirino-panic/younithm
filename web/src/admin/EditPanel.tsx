@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Plus, RefreshCw, Star, Users, X } from "lucide-react";
 import { endpoints, ApiError, withBase, type AliasEntry, type Credit, type CreditIn, type MergeCandidate } from "../api";
@@ -6,6 +6,13 @@ import { Autocomplete, Badge, Cover, InfoTip, Modal, Sheet, Switch, useToast } f
 
 type Kind = "recording" | "release" | "artist";
 const LABELS: Record<Kind, string> = { recording: "track", release: "album", artist: "artist" };
+
+// Names are matched lowercased with spaces collapsed, so only capitalization
+// and spacing can change without making it a different name.
+const SPELLING_ONLY = "Only capitalization and spacing can change. Add a different name as a new one.";
+const normName = (s: string) => s.trim().toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+// A track's name key is "artist<US>title"; the title is the part written out.
+const titlePart = (kind: string, key: string) => kind === "recording" ? key.slice(key.lastIndexOf("\x1f") + 1) : key;
 const ROUTES: Record<Kind, string> = { recording: "/track/", release: "/album/", artist: "/artist/" };
 const PROVIDERS = [["spotify", "Spotify"], ["apple", "Apple Music"], ["musicbrainz", "MusicBrainz"]] as const;
 const PATHS: Record<string, Record<Kind, string>> = {
@@ -44,6 +51,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
   const [names, setNames] = useState<AliasEntry[]>([]);
   const [nameEdits, setNameEdits] = useState<Record<string, boolean | "removed">>({});
   // Names typed in, added on Save. nameDraft is the open input, if any.
+  // Respelled names: key -> spelling as typed.
+  const [spellEdits, setSpellEdits] = useState<Record<string, string>>({});
   const [newNames, setNewNames] = useState<{ name: string; searchOnly: boolean }[]>([]);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const commitDraft = () => {
@@ -201,6 +210,13 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
         const prim = albums.find((a) => a.primary && !a.removed && a.id);
         if (prim?.id && !before.get(prim.id)?.primary) await endpoints.setPrimaryRelease(id, prim.id);
         if (albums.some((a) => a.removed || !a.id || !before.has(a.id)) || (prim && !before.get(prim.id!)?.primary)) done.push("albums");
+      }
+      for (const [n, v] of Object.entries(spellEdits)) {
+        if (nameEdits[n] === "removed") continue;
+        if (normName(v) !== titlePart(kind, n)) throw new ApiError(400, "not_same_name", SPELLING_ONLY);
+        await endpoints.setAliasSpelling(kind, id, n, v.trim());
+        setSpellEdits(({ [n]: _, ...rest }) => rest);
+        done.push("names");
       }
       for (const [n, v] of Object.entries(nameEdits)) {
         if (v === "removed") await endpoints.removeAlias(kind, id, n);
@@ -450,12 +466,18 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                 const ed = nameEdits[n.name];
                 const removed = ed === "removed";
                 const searchOnly = typeof ed === "boolean" ? ed : n.search_only;
-                const shown = n.name.split("\x1f").join(" – ");
+                const shown = n.display || titlePart(kind, n.name);
+                const typed = spellEdits[n.name] ?? shown;
+                const bad = normName(typed) !== titlePart(kind, n.name);
                 const set = (v: boolean | "removed" | undefined) => setNameEdits(({ [n.name]: _, ...rest }) =>
                   v === undefined || v === n.search_only ? rest : { ...rest, [n.name]: v });
                 return (
-                  <div key={n.name} className={`edit-row${removed ? " removed" : ""}`}>
-                    <span className="grow truncate" title={shown}>{shown}</span>
+                  <Fragment key={n.name}>
+                  <div className={`edit-row${removed ? " removed" : ""}`}>
+                    <input className="input-inline grow" value={typed} disabled={removed} aria-label={`Spelling of ${shown}`}
+                      aria-invalid={bad || undefined}
+                      onChange={(e) => { const v = e.target.value; setSpellEdits(({ [n.name]: _, ...rest }) => v === shown ? rest : { ...rest, [n.name]: v }); }} />
+                    {kind === "recording" && <span className="muted truncate" style={{ fontSize: 12, maxWidth: "30%" }} title="Artist">{n.name.slice(0, n.name.indexOf("\x1f"))}</span>}
                     {n.source === "musicbrainz" && !removed && <Badge>MusicBrainz</Badge>}
                     {removed
                       ? <button className="btn btn-plain" onClick={() => set(undefined)}>Keep</button>
@@ -464,6 +486,8 @@ export function EditPanel({ kind, id, name, override, image, imageCustom = false
                         <button className="btn btn-icon btn-plain" aria-label={`Remove ${shown}`} onClick={() => set("removed")}><X size={15} /></button>
                       </>}
                   </div>
+                  {bad && !removed && <p className="error-text" style={{ margin: "0 0 4px" }}>{SPELLING_ONLY}</p>}
+                  </Fragment>
                 );
               })}
               {newNames.map((n) => (

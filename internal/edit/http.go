@@ -45,6 +45,7 @@ import (
 //	PUT    /api/v1/admin/entities/{kind}/{id}/aliases    {name, search_only}
 //	POST   /api/v1/admin/entities/{kind}/{id}/aliases/remove {name}  stays removed
 //	POST   /api/v1/admin/entities/{kind}/{id}/aliases    {name, search_only}  add by hand
+//	PUT    /api/v1/admin/entities/{kind}/{id}/aliases/spelling {name, display}  capitalization and spacing
 //	POST   /api/v1/admin/releases/{id}/apply-artists     the album's artists onto every track
 //	POST   /api/v1/admin/entities/{kind}/{id}/refresh    look the track (or every album track) up again
 //
@@ -96,6 +97,7 @@ func Mount(r chi.Router, pools *db.Pools, hooks ...Hooks) {
 		r.Put(p+"/entities/{kind}/{id}/aliases", h.setAliasSearchOnly)
 		r.Post(p+"/entities/{kind}/{id}/aliases/remove", h.removeAlias)
 		r.Post(p+"/entities/{kind}/{id}/aliases", h.addAlias)
+		r.Put(p+"/entities/{kind}/{id}/aliases/spelling", h.setAliasSpelling)
 		r.Post(p+"/entities/{kind}/{id}/refresh", h.refresh)
 		r.Put(p+"/entities/{kind}/{id}/links", h.setLink)
 		r.Post(p+"/entities/{kind}/{id}/image", h.setImage)
@@ -509,6 +511,22 @@ func (h *handlers) addAlias(w http.ResponseWriter, r *http.Request) {
 		*Result
 		SearchOnly bool `json:"search_only"`
 	}{res, searchOnly})
+}
+
+func (h *handlers) setAliasSpelling(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Name    string `json:"name"`
+		Display string `json:"display"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	res, err := h.ed.SetAliasSpelling(r.Context(), actor(r), chi.URLParam(r, "kind"), id, in.Name, in.Display)
+	done(w, res, err)
 }
 
 func (h *handlers) removeAlias(w http.ResponseWriter, r *http.Request) {

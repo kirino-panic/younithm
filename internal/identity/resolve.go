@@ -798,7 +798,7 @@ func learnSpelling(ctx context.Context, q DB, rec int64, in Input) error {
 	if Norm(artist) == "" {
 		return nil
 	}
-	_, err := AddAlias(ctx, q, kRecording, rec, RecordingAliasKey(artist, in.Title))
+	_, err := AddAlias(ctx, q, kRecording, rec, RecordingAliasKey(artist, in.Title), in.Title)
 	return err
 }
 

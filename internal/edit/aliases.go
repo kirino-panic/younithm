@@ -14,7 +14,16 @@ import (
 type AliasEntry struct {
 	Name       string `json:"name"`
 	SearchOnly bool   `json:"search_only"`
-	Source     string `json:"source,omitempty"` // the catalogue it was read from
+	Source     string `json:"source,omitempty"`  // the catalogue it was read from
+	Display    string `json:"display,omitempty"` // as written: a name, or a track's title
+}
+
+// spelling is a name as written, for a display column: NULL when unknown.
+func spelling(s string) any {
+	if s = strings.TrimSpace(s); s != "" {
+		return s
+	}
+	return nil
 }
 
 // Aliases lists an entity's other names, matching ones first. The keys of its
@@ -33,8 +42,8 @@ func Aliases(ctx context.Context, q Querier, kind string, id int64) ([]AliasEntr
 		skip[k] = true
 	}
 	rows, err := q.QueryContext(ctx, `
-SELECT raw_string, 0, '' FROM alias WHERE kind=?1 AND entity_id=?2
-UNION ALL SELECT name, 1, provider FROM search_name WHERE kind=?1 AND entity_id=?2
+SELECT raw_string, 0, '', COALESCE(display, '') FROM alias WHERE kind=?1 AND entity_id=?2
+UNION ALL SELECT name, 1, provider, COALESCE(display, '') FROM search_name WHERE kind=?1 AND entity_id=?2
 ORDER BY 2, 1`, kind, id)
 	if err != nil {
 		return nil, err
@@ -43,7 +52,7 @@ ORDER BY 2, 1`, kind, id)
 	out := []AliasEntry{}
 	for rows.Next() {
 		var a AliasEntry
-		if err := rows.Scan(&a.Name, &a.SearchOnly, &a.Source); err != nil {
+		if err := rows.Scan(&a.Name, &a.SearchOnly, &a.Source, &a.Display); err != nil {
 			return nil, err
 		}
 		if !skip[a.Name] {
@@ -87,7 +96,7 @@ func (e *Editor) SetAliasSearchOnly(ctx context.Context, actor, kind string, id 
 		case on && al != nil:
 			cs = append(cs, Change{Table: "alias", Key: Row{"id": al["id"]}, Before: al})
 			if sn == nil {
-				cs = append(cs, Change{Table: "search_name", After: Row{"kind": kind, "entity_id": id, "name": name, "provider": "", "provider_id": ""}})
+				cs = append(cs, Change{Table: "search_name", After: Row{"kind": kind, "entity_id": id, "name": name, "provider": "", "provider_id": "", "display": al["display"]}})
 			}
 		case !on && sn != nil:
 			if taken, err := nameTaken(ctx, tx, kind, id, name); err != nil {
@@ -97,7 +106,7 @@ func (e *Editor) SetAliasSearchOnly(ctx context.Context, actor, kind string, id 
 			}
 			cs = append(cs, Change{Table: "search_name", Key: Row{"id": sn["id"]}, Before: sn})
 			if al == nil {
-				cs = append(cs, Change{Table: "alias", After: Row{"kind": kind, "raw_string": name, "entity_id": id}})
+				cs = append(cs, Change{Table: "alias", After: Row{"kind": kind, "raw_string": name, "entity_id": id, "display": sn["display"]}})
 			}
 		case al == nil && sn == nil:
 			return nil, notFound("%s %d has no name %q", kind, id, name)
@@ -230,9 +239,9 @@ func (e *Editor) AddAlias(ctx context.Context, actor, kind string, id int64, nam
 		}
 		var cs []Change
 		if asSearch {
-			cs = append(cs, Change{Table: "search_name", After: Row{"kind": kind, "entity_id": id, "name": key, "provider": "", "provider_id": ""}})
+			cs = append(cs, Change{Table: "search_name", After: Row{"kind": kind, "entity_id": id, "name": key, "provider": "", "provider_id": "", "display": name}})
 		} else {
-			cs = append(cs, Change{Table: "alias", After: Row{"kind": kind, "raw_string": key, "entity_id": id}})
+			cs = append(cs, Change{Table: "alias", After: Row{"kind": kind, "raw_string": key, "entity_id": id, "display": name}})
 		}
 		if rs, err := queryRows(ctx, tx, `SELECT `+cols("alias_rejection")+` FROM alias_rejection WHERE kind=? AND entity_id=? AND name=?`, kind, id, key); err != nil {
 			return nil, err
@@ -243,4 +252,49 @@ func (e *Editor) AddAlias(ctx context.Context, actor, kind string, id int64, nam
 			summary: fmt.Sprintf("Add a name to %s %d", kind, id), changes: cs}, nil
 	})
 	return res, asSearch, err
+}
+
+// SetAliasSpelling changes how one of an entity's other names is written:
+// capitalization and spacing only, since the name still has to be the same
+// one listens are matched by. A different name is added as a new one.
+func (e *Editor) SetAliasSpelling(ctx context.Context, actor, kind string, id int64, name, display string) (*Result, error) {
+	if _, ok := kindTable[kind]; !ok {
+		return nil, invalid("bad_kind", "kind must be artist, recording or release")
+	}
+	display = strings.TrimSpace(display)
+	if display == "" {
+		return nil, invalid("empty_name", "enter a name")
+	}
+	// A track's key carries its artist; only the title part is written out.
+	want := name
+	if i := strings.LastIndex(name, keySep); kind == KindRecording && i >= 0 {
+		want = name[i+len(keySep):]
+	}
+	if Norm(display) != want {
+		return nil, invalid("not_same_name", "only capitalization and spacing can change; add a different name as a new one")
+	}
+	return e.run(ctx, actor, func(tx *sql.Tx) (*draft, error) {
+		if _, err := e.entityExists(ctx, tx, kind, id); err != nil {
+			return nil, err
+		}
+		al, sn, err := aliasRow(ctx, tx, kind, id, name)
+		if err != nil {
+			return nil, err
+		}
+		var cs []Change
+		if al != nil && al["display"] != display {
+			cs = append(cs, Change{Table: "alias", Key: Row{"id": al["id"]}, Before: Row{"display": al["display"]}, After: Row{"display": display}})
+		}
+		if sn != nil && sn["display"] != display {
+			cs = append(cs, Change{Table: "search_name", Key: Row{"id": sn["id"]}, Before: Row{"display": sn["display"]}, After: Row{"display": display}})
+		}
+		if al == nil && sn == nil {
+			return nil, notFound("%s %d has no name %q", kind, id, name)
+		}
+		if len(cs) == 0 {
+			return nil, ErrNoChange
+		}
+		return &draft{scope: "alias", entityType: kind, entityID: id,
+			summary: fmt.Sprintf("Respell a name of %s %d", kind, id), changes: cs}, nil
+	})
 }

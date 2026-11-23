@@ -443,10 +443,17 @@ LIMIT ?`, lk.MaxArtists())
 				}
 				// A name a person removed, or made a matching alias of this
 				// artist, is not added (back) as a search name.
-				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO search_name (kind, entity_id, name, provider, provider_id)
-					SELECT 'artist', ?1, ?2, 'musicbrainz', ?3
+				// The spelling fills in one not known yet and never replaces one.
+				if _, err := tx.ExecContext(ctx, `INSERT INTO search_name (kind, entity_id, name, provider, provider_id, display)
+					SELECT 'artist', ?1, ?2, 'musicbrainz', ?3, ?4
 					WHERE NOT EXISTS (SELECT 1 FROM alias_rejection WHERE kind='artist' AND entity_id=?1 AND name=?2)
-					  AND NOT EXISTS (SELECT 1 FROM alias WHERE kind='artist' AND entity_id=?1 AND raw_string=?2)`, artist, key, pid); err != nil {
+					  AND NOT EXISTS (SELECT 1 FROM alias WHERE kind='artist' AND entity_id=?1 AND raw_string=?2)
+					ON CONFLICT (kind, entity_id, name) DO UPDATE SET display = COALESCE(search_name.display, excluded.display)`, artist, key, pid, strings.TrimSpace(n.Name)); err != nil {
+					tx.Rollback()
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, `UPDATE alias SET display=? WHERE kind='artist' AND entity_id=? AND raw_string=? AND display IS NULL`,
+					strings.TrimSpace(n.Name), artist, key); err != nil {
 					tx.Rollback()
 					return err
 				}

@@ -167,8 +167,10 @@ func (h *Handler) aliases(ctx context.Context, kind string, id int64, name strin
 	if kind != "recording" { // recording keys also carry the artist, so they never equal a title
 		name = identity.Norm(name)
 	}
-	rows, err := h.read.QueryContext(ctx, `SELECT raw_string FROM alias WHERE kind = ? AND entity_id = ?
-AND raw_string <> ? ORDER BY raw_string LIMIT 20`, kind, id, name)
+	// Shown as written when known. A track's key carries its artist, so its
+	// spelling (just the title) is the only readable form.
+	rows, err := h.read.QueryContext(ctx, `SELECT COALESCE(display, raw_string) FROM alias WHERE kind = ? AND entity_id = ?
+AND raw_string <> ? AND (display IS NOT NULL OR kind <> 'recording') ORDER BY raw_string LIMIT 20`, kind, id, name)
 	if err != nil {
 		return nil, err
 	}

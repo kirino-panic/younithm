@@ -2,6 +2,7 @@ package enrich
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -323,5 +324,37 @@ func TestNamePassImportsMusicBrainzAliasesForSearchOnly(t *testing.T) {
 	}
 	if got := names(); got != "[]" {
 		t.Fatalf("names stayed after the link was removed: %v", got)
+	}
+}
+
+func TestMusicBrainzAliasSpellingFillsGapsOnly(t *testing.T) {
+	e := setup(t)
+	mb := &fakeMB{aliases: map[string][]providers.LocalName{
+		"mb-band": {{Name: "Band, The"}, {Name: "TheBand"}, {Name: "Matching Name"}},
+	}}
+	e.m = NewManager(e.db, match.New(providers.NewRegistry(mb), match.Config{}), snapshot.New(e.db),
+		Options{Now: func() time.Time { return e.now }, MaxAttempts: 3})
+	exec(t, e.db, `INSERT INTO external_link(entity_type,entity_id,provider,provider_id,match_method,status) VALUES
+	  ('artist',1,'musicbrainz','mb-band','lookup','auto')`)
+	// Respelled by a person before the import; a matching alias with no spelling.
+	exec(t, e.db, `INSERT INTO search_name(kind,entity_id,name,provider,provider_id,display) VALUES ('artist',1,'theband','musicbrainz','mb-band','THEBAND')`)
+	exec(t, e.db, `INSERT INTO alias(kind,raw_string,entity_id) VALUES ('artist','matching name',1)`)
+	if err := e.m.NamePass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	spell := func(q, name string) string {
+		var s sql.NullString
+		e.db.QueryRow(q, name).Scan(&s)
+		return s.String
+	}
+	const sn = `SELECT display FROM search_name WHERE kind='artist' AND entity_id=1 AND name=?`
+	if got := spell(sn, "band, the"); got != "Band, The" {
+		t.Fatalf("new name spelled %q", got)
+	}
+	if got := spell(sn, "theband"); got != "THEBAND" {
+		t.Fatalf("a person's spelling was replaced: %q", got)
+	}
+	if got := spell(`SELECT display FROM alias WHERE kind='artist' AND entity_id=1 AND raw_string=?`, "matching name"); got != "Matching Name" {
+		t.Fatalf("matching alias spelling not filled: %q", got)
 	}
 }

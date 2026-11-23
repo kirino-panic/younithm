@@ -58,56 +58,67 @@ func nameField(kind string) string {
 // aliasKeys lists the alias strings under which entity id is (or was) known:
 // its canonical name plus every raw spelling seen in scrobbles pointing at it.
 func aliasKeys(ctx context.Context, tx Querier, kind string, id int64, row Row) ([]string, error) {
-	seen := map[string]bool{}
+	keys, _, err := aliasNames(ctx, tx, kind, id, row)
+	return keys, err
+}
+
+// aliasNames is aliasKeys with each key's spelling as written: a name, or a
+// track's title.
+func aliasNames(ctx context.Context, tx Querier, kind string, id int64, row Row) ([]string, map[string]string, error) {
+	spell := map[string]string{}
 	var out []string
-	add := func(k string) {
-		if k != "" && k != keySep && !seen[k] {
-			seen[k] = true
+	add := func(k, written string) {
+		if k == "" || k == keySep {
+			return
+		}
+		if _, seen := spell[k]; !seen {
+			spell[k] = strings.TrimSpace(written)
 			out = append(out, k)
 		}
 	}
 	switch kind {
 	case KindArtist:
-		add(ArtistKey(str(row["name"])))
+		add(ArtistKey(str(row["name"])), str(row["name"]))
 	case KindRecording:
 		names, err := queryRows(ctx, tx, `SELECT a.name AS n FROM recording_artist ra JOIN artist a ON a.id=ra.artist_id
 			WHERE ra.recording_id=? ORDER BY ra.position, a.id`, id)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		title := str(row["title"])
 		var all []string
 		for _, n := range names {
-			add(RecordingKey(str(n["n"]), str(row["title"])))
+			add(RecordingKey(str(n["n"]), title), title)
 			all = append(all, str(n["n"]))
 		}
 		if len(all) > 1 {
-			add(RecordingKey(strings.Join(all, ", "), str(row["title"])))
+			add(RecordingKey(strings.Join(all, ", "), title), title)
 		}
 		raws, err := queryRows(ctx, tx, `SELECT DISTINCT raw_artist AS a, raw_title AS t FROM scrobble WHERE recording_id=? LIMIT 1000`, id)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, r := range raws {
-			add(RecordingKey(str(r["a"]), str(r["t"])))
+			add(RecordingKey(str(r["a"]), str(r["t"])), str(r["t"]))
 		}
 	case KindRelease:
-		add(ReleaseKey(str(row["title"])))
+		add(ReleaseKey(str(row["title"])), str(row["title"]))
 		raws, err := queryRows(ctx, tx, `SELECT DISTINCT raw_album AS a FROM scrobble WHERE release_id=? AND raw_album IS NOT NULL LIMIT 1000`, id)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, r := range raws {
-			add(ReleaseKey(str(r["a"])))
+			add(ReleaseKey(str(r["a"])), str(r["a"]))
 		}
 	}
-	return out, nil
+	return out, spell, nil
 }
 
 func str(v any) string { s, _ := v.(string); return s }
 
 // aliasChanges plans alias rows key -> id. An existing alias for the same key
 // is left alone when overwrite is false, otherwise repointed.
-func aliasChanges(ctx context.Context, tx Querier, kind string, keys []string, id int64, overwrite bool) ([]Change, error) {
+func aliasChanges(ctx context.Context, tx Querier, kind string, keys []string, spell map[string]string, id int64, overwrite bool) ([]Change, error) {
 	var out []Change
 	for _, k := range keys {
 		rows, err := queryRows(ctx, tx, `SELECT id, entity_id FROM alias WHERE kind=? AND raw_string=?`, kind, k)
@@ -116,7 +127,7 @@ func aliasChanges(ctx context.Context, tx Querier, kind string, keys []string, i
 		}
 		switch {
 		case len(rows) == 0:
-			out = append(out, Change{Table: "alias", Key: nil, After: Row{"kind": kind, "raw_string": k, "entity_id": id}})
+			out = append(out, Change{Table: "alias", Key: nil, After: Row{"kind": kind, "raw_string": k, "entity_id": id, "display": spelling(spell[k])}})
 		case overwrite && rows[0]["entity_id"] != id:
 			out = append(out, Change{Table: "alias", Key: Row{"id": rows[0]["id"]},
 				Before: Row{"entity_id": rows[0]["entity_id"]}, After: Row{"entity_id": id}})
@@ -181,11 +192,11 @@ func (e *Editor) EditEntity(ctx context.Context, actor, kind string, id int64, e
 		var cs []Change
 		// Keep the old spelling resolving to this entity.
 		if _, renamed := after[nameField(kind)]; renamed && !ed.DropAlias {
-			keys, err := aliasKeys(ctx, tx, kind, id, row)
+			keys, spell, err := aliasNames(ctx, tx, kind, id, row)
 			if err != nil {
 				return nil, err
 			}
-			ac, err := aliasChanges(ctx, tx, kind, keys, id, false)
+			ac, err := aliasChanges(ctx, tx, kind, keys, spell, id, false)
 			if err != nil {
 				return nil, err
 			}
