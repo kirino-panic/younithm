@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Upload, X } from "lucide-react";
-import { api, endpoints, ApiError, type ImportJob } from "../api";
+import { endpoints, ApiError, withStepUp, type ImportJob } from "../api";
 import { fmtDate, fmtNum } from "../format";
-import { ActionRow, Group, InfoTip, SettingRow, Status, Switch, useData, useToast } from "../ui";
+import { ActionRow, Group, InfoTip, SettingRow, Status, Switch, useData, usePasswordPrompt, useToast } from "../ui";
 import { AdminHead, useQueue } from "./AdminLayout";
 import { t } from "../onboarding/copy";
 
@@ -31,23 +31,32 @@ export function Imports() {
   }, [current, list]);
 
   const [picked, setPicked] = useState<File[] | null>(null);
+  // The file being sent right now. A big file (Apple's Play Activity) takes a
+  // while, and Start import stays off meanwhile so a second click can't start
+  // a second import.
+  const [sending, setSending] = useState("");
   const upload = async (files: File[]) => {
-    if (!files.length) return;
+    if (!files.length || sending) return;
     setErr("");
+    let job: ImportJob | null = null;
     try {
       const [first, ...rest] = files;
-      let job = await endpoints.upload([first], { fuzzyConsent: fuzzy, ...(range.on ? { from: range.from, to: range.to } : {}) });
+      setSending(first.name);
+      job = await endpoints.upload([first], { fuzzyConsent: fuzzy, ...(range.on ? { from: range.from, to: range.to } : {}) });
       for (const f of rest) {
-        const fd = new FormData();
-        fd.append("file", f);
-        job = await api.post<ImportJob>(`/api/v1/admin/imports/${job.id}/files`, fd);
+        setSending(f.name);
+        job = await endpoints.addImportFile(job.id, f);
       }
       setCurrent(job);
       setPicked(null);
       setRange(NO_RANGE);
-      list.reload();
     } catch (e) {
+      // Don't leave a half-made import waiting for a file that never came.
+      if (job) await endpoints.cancelImport(job.id).catch(() => {});
       setErr(e instanceof ApiError ? e.message : "Upload failed.");
+    } finally {
+      setSending("");
+      list.reload();
     }
   };
 
@@ -73,7 +82,7 @@ export function Imports() {
       <div className="groups">
         {err && <p className="error-text">{err}</p>}
         {current
-          ? <JobGroup job={current} onConfirm={confirm} onClose={() => setCurrent(null)} onCancel={async () => { await endpoints.cancelImport(current.id).catch(() => {}); setCurrent(null); list.reload(); }} />
+          ? <JobGroup job={current} onConfirm={confirm} onUndone={() => { setCurrent(null); list.reload(); }} onClose={() => setCurrent(null)} onCancel={async () => { await endpoints.cancelImport(current.id).catch(() => {}); setCurrent(null); list.reload(); }} />
           : <>
             {picked ? (
               <Group title="Files to import">
@@ -86,7 +95,7 @@ export function Imports() {
                 <ActionRow onClick={() => input.current?.click()}>Choose other files</ActionRow>
               </Group>
             ) : <Group><ActionRow onClick={() => input.current?.click()}><Upload size={16} />Upload files</ActionRow></Group>}
-            <ImportOptions fuzzy={fuzzy} setFuzzy={setFuzzy} range={range} setRange={setRange} ready={!!picked} onStart={() => picked && upload(picked)} onCancel={() => setPicked(null)} />
+            <ImportOptions fuzzy={fuzzy} setFuzzy={setFuzzy} range={range} setRange={setRange} ready={!!picked} sending={sending} onStart={() => picked && upload(picked)} onCancel={() => setPicked(null)} />
           </>}
         <Matching />
         <Group title="Past imports">
@@ -151,9 +160,9 @@ function rangeText(o?: { from?: string; to?: string }) {
   return "";
 }
 
-function ImportOptions({ fuzzy, setFuzzy, range, setRange, ready, onStart, onCancel }: {
+function ImportOptions({ fuzzy, setFuzzy, range, setRange, ready, sending, onStart, onCancel }: {
   fuzzy: boolean; setFuzzy: (v: boolean) => void; range: DateRange; setRange: (r: DateRange) => void;
-  ready: boolean; onStart: () => void; onCancel: () => void;
+  ready: boolean; sending: string; onStart: () => void; onCancel: () => void;
 }) {
   const backwards = range.on && !!range.from && !!range.to && range.to < range.from;
   const hpLabel = t("history.highPrecision");
@@ -179,8 +188,10 @@ function ImportOptions({ fuzzy, setFuzzy, range, setRange, ready, onStart, onCan
         <input className="input" type="date" aria-label="To" aria-invalid={backwards || undefined} style={{ width: "auto" }} value={range.to} min={range.from || undefined} onChange={(e) => setRange({ ...range, to: e.target.value })} />
       </SettingRow>
       </>}
-      <ActionRow disabled={!ready || backwards} onClick={onStart}>Start import</ActionRow>
-      <ActionRow danger disabled={!ready} onClick={onCancel}>Cancel</ActionRow>
+      <ActionRow disabled={!ready || backwards || !!sending} onClick={onStart}>
+        {sending ? <span className="truncate">Uploading {sending}…</span> : "Start import"}
+      </ActionRow>
+      <ActionRow danger disabled={!ready || !!sending} onClick={onCancel}>Cancel</ActionRow>
     </Group>
   );
 }
@@ -195,8 +206,25 @@ function JobStatus({ job }: { job: ImportJob }) {
   return <Status ok={ok} label={label} />;
 }
 
-function JobGroup({ job, onConfirm, onCancel, onClose }: { job: ImportJob; onConfirm: () => void; onCancel: () => void; onClose: () => void }) {
+function JobGroup({ job, onConfirm, onCancel, onClose, onUndone }: { job: ImportJob; onConfirm: () => void; onCancel: () => void; onClose: () => void; onUndone: () => void }) {
   const p = job.preview;
+  // Undo takes a second tap (and the password): it removes every listen this
+  // import added. The file can then be imported again.
+  const [undoArmed, setUndoArmed] = useState(false);
+  const ask = usePasswordPrompt();
+  const toast = useToast();
+  const added = job.progress.inserted;
+  const undo = async () => {
+    if (!undoArmed) { setUndoArmed(true); return; }
+    try {
+      const r = await withStepUp(() => endpoints.undoImport(job.id), ask);
+      toast({ text: `${fmtNum(r.removed)} listens removed` });
+      onUndone();
+    } catch (e) {
+      setUndoArmed(false);
+      if (!(e instanceof ApiError && e.code === "step_up_required")) toast({ text: "Couldn't undo the import." });
+    }
+  };
   const total = job.progress.parsed || job.progress.rows_seen || 0;
   const pct = total ? Math.min(100, ((job.progress.inserted + job.progress.duplicates) / total) * 100) : 0;
   const n = (v: number | undefined) => <span className="muted num">{fmtNum(v ?? 0)}</span>;
@@ -224,7 +252,10 @@ function JobGroup({ job, onConfirm, onCancel, onClose }: { job: ImportJob; onCon
       )}
       {job.status === "running" && <div className="row-setting"><div className="progress" style={{ flex: 1 }}><i style={{ width: `${pct}%` }} /></div></div>}
       {job.status === "awaiting_confirmation" && <ActionRow onClick={onConfirm}>Import {fmtNum(p?.counts?.new ?? job.progress.new)} listens</ActionRow>}
-      {job.status === "awaiting_confirmation" && <ActionRow danger onClick={onCancel}>Cancel</ActionRow>}
+      {(job.status === "awaiting_confirmation" || job.status === "awaiting_files") && <ActionRow danger onClick={onCancel}>Cancel</ActionRow>}
+      {(job.status === "done" || job.status === "failed") && added > 0 && (
+        <ActionRow danger onClick={undo}>{undoArmed ? `Remove ${fmtNum(added)} listens` : "Undo import"}</ActionRow>
+      )}
       {job.status !== "awaiting_confirmation" && <ActionRow onClick={onClose}>Done</ActionRow>}
     </Group>
   );

@@ -45,6 +45,7 @@ func apiErr(w http.ResponseWriter, status int, code, msg string) {
 //	POST   /admin/imports/{id}/retry   re-run a failed job
 //	POST   /admin/imports/{id}/cancel
 //	DELETE /admin/imports/{id}         remove a finished job record
+//	POST   /admin/imports/{id}/undo    remove the listens a finished import added, then the job (step-up)
 func (m *Manager) Mount(r chi.Router) { m.MountWith(r, auth.RequireSession) }
 
 // MountWith is Mount with explicit middleware (tests).
@@ -61,6 +62,7 @@ func (m *Manager) MountWith(r chi.Router, session func(http.Handler) http.Handle
 			r.Post("/confirm", m.confirm)
 			r.Post("/retry", m.retry)
 			r.Post("/files", m.addFile)
+			r.With(auth.RequireStepUp).Post("/undo", m.undo)
 		})
 	})
 }
@@ -164,6 +166,19 @@ func (m *Manager) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (m *Manager) undo(w http.ResponseWriter, r *http.Request) {
+	id, ok := jobID(w, r)
+	if !ok {
+		return
+	}
+	n, err := m.Undo(r.Context(), id)
+	if err != nil {
+		m.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]int64{"removed": n})
 }
 
 func parseWindow(s string) (time.Duration, error) {

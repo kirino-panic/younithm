@@ -41,7 +41,7 @@ Apple splits what an import needs across two files, and an Apple import needs bo
 
 The job waits in `awaiting_files` until both are uploaded, either separately (`POST /admin/imports` then `POST /admin/imports/{id}/files`) or as the export zip. Nothing is read, previewed or written until then. Files are told apart by their header.
 
-The join matches each play to the Daily Tracks row with the same title on the same day, or the day either side when that day has none. A play with no match, or more than one song id for that title and day, is skipped and counted, never guessed. Radio stations and plays under 30 s are skipped too. Every imported row then resolves by its Apple id, and enrichment replaces the artist string with Apple's credits and fills the album.
+The join matches each play to the Daily Tracks row with the same title on the same day, or the day either side when that day has none. A play with no match, or more than one song id for that title and day, is skipped and counted, never guessed. Radio stations and plays under 30 s are skipped too, and so is every Play Activity event other than `PLAY_END`: `PLAY_START` is only a start marker and `LYRIC_DISPLAY` is lyrics on screen, so counting them counts one listen two or three times. Every imported row then resolves by its Apple id, and enrichment replaces the artist string with Apple's credits and fills the album.
 
 The preview's `apple` block reports `daily_rows`, `daily_tracks`, `joined`, `unjoined`, `ambiguous` and the first 20 skipped plays with reasons.
 
@@ -81,5 +81,6 @@ Under `/api/v1/admin`, admin session required. Writes need the CSRF header; conf
 | `POST /imports/{id}/retry` | Re-run a failed job |
 | `POST /imports/{id}/cancel` | Cancel an unfinished job |
 | `DELETE /imports/{id}` | Remove a finished job's record; its scrobbles stay |
+| `POST /imports/{id}/undo` | Remove every scrobble a finished import added, then the job, so the file can be imported again. Backs up the database first; needs step-up |
 
 Errors are `{"error": code, "message": text}`, for example `unknown_format` (422), `too_large` (413), `invalid_state` (409), `step_up_required` (403).

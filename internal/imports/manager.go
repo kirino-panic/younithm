@@ -24,6 +24,8 @@ type Options struct {
 	DebugLimit   func() int    // debug: when it returns N > 0, imports use only the newest N listens
 	// OnDone runs after a job finishes importing (matching starts from here).
 	OnDone func()
+	// Backup snapshots the database before an import is undone; nil skips it.
+	Backup func(tag string) (string, error)
 }
 
 // Manager owns the job store, the single background worker and cancellation.
@@ -306,6 +308,31 @@ func (m *Manager) Cancel(ctx context.Context, id int64) error {
 		m.dropFile(j)
 	}
 	return nil
+}
+
+// Undo removes every listen a finished import added, then the job itself, so
+// the file can be imported again. The database is backed up first. Recordings
+// and releases the import created stay: a re-import finds them again, with
+// any links and fixes made since.
+func (m *Manager) Undo(ctx context.Context, id int64) (int64, error) {
+	j, err := m.store.getW(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if j.Status != StatusDone && j.Status != StatusFailed {
+		return 0, fmt.Errorf("%w (only a finished import can be undone)", ErrState)
+	}
+	if m.opt.Backup != nil {
+		if _, err := m.opt.Backup("pre-undo-import"); err != nil {
+			return 0, fmt.Errorf("backup before undo: %w", err)
+		}
+	}
+	n, err := m.store.undo(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	m.dropFile(j)
+	return n, nil
 }
 
 // Delete removes a finished job record and its upload. Scrobbles it created

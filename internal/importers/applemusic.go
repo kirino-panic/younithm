@@ -32,7 +32,8 @@ const DefaultAppleMinPlayedMs = 30_000
 //
 // Durations are unreliable in these exports, so a play is skipped only when a
 // duration is present and under MinPlayedMs. Video rows and rows with no title
-// at all (bookkeeping events) are skipped. This format is implemented from
+// at all (bookkeeping events) are skipped, and so is every Event Type other
+// than PLAY_END when the column is there. This format is implemented from
 // documentation and user reports, not from a live export.
 type AppleMusic struct {
 	// MinPlayedMs: 0 uses DefaultAppleMinPlayedMs, negative disables the filter.
@@ -147,6 +148,14 @@ func (p AppleMusic) Parse(ctx context.Context, r io.Reader, emit func(Listen) er
 			}
 		}
 		if title == "" || strings.EqualFold(get("media type"), "video") {
+			rn.skip()
+			continue
+		}
+		// Play Activity logs several events per song: PLAY_START (a start
+		// marker with no duration), PLAY_END (the play itself, with its
+		// duration) and LYRIC_DISPLAY (lyrics on screen). Only PLAY_END is a
+		// play; counting the others counts one listen two or three times.
+		if ev := get("event type"); ev != "" && !strings.EqualFold(ev, "PLAY_END") {
 			rn.skip()
 			continue
 		}

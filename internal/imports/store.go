@@ -429,6 +429,24 @@ func (s *Store) AddFiles(ctx context.Context, id int64, files []fileRef, replace
 	return orphans, complete, nil
 }
 
+// undo deletes the job's scrobbles and the job in one transaction.
+func (s *Store) undo(ctx context.Context, id int64) (int64, error) {
+	tx, err := s.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `DELETE FROM scrobble WHERE import_job_id=?`, id)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM import_job WHERE id=?`, id); err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
+}
+
 func (s *Store) delete(ctx context.Context, id int64) error {
 	_, err := s.Write.ExecContext(ctx, `DELETE FROM import_job WHERE id=?`, id)
 	return err

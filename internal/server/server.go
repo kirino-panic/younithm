@@ -201,6 +201,7 @@ func New(pools *db.Pools, opts ...Option) http.Handler {
 				(*f)()
 			}
 		},
+		Backup: func(tag string) (string, error) { return db.Backup(pools, tag) },
 	})
 	if err := imp.Start(o.bg); err != nil {
 		log.Printf("imports: starting job runner: %v", err)

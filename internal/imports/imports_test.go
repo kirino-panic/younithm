@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -1037,5 +1038,41 @@ func TestDateRangeLeavesOutListensOutsideIt(t *testing.T) {
 		if code, _ := e.upload("lastfm.csv", []byte(b.String()), q); code != 400 {
 			t.Fatalf("%s: code %d, want 400", q, code)
 		}
+	}
+}
+
+// Undo removes exactly the listens one import added (after a backup), drops
+// the job, and leaves the file importable again.
+func TestUndoRemovesOnlyThatImportsListens(t *testing.T) {
+	backups := 0
+	e := newEnv(t, Options{Backup: func(string) (string, error) { backups++; return "", nil }})
+	_, keep := e.previewAndApply("lastfm.json", fixture(t, "lastfm.json"), "")
+	_, done := e.previewAndApply("listenbrainz.jsonl", fixture(t, "listenbrainz.jsonl"), "")
+	before := e.count(`SELECT COUNT(*) FROM scrobble`)
+
+	n, err := e.m.Undo(e.ctx, done.ID)
+	if err != nil || n != done.Progress.Inserted || backups != 1 {
+		t.Fatalf("undo: removed %d (inserted %d), err %v, backups %d", n, done.Progress.Inserted, err, backups)
+	}
+	if got := e.count(`SELECT COUNT(*) FROM scrobble`); int64(got) != int64(before)-n {
+		t.Fatalf("scrobbles %d, want %d", got, int64(before)-n)
+	}
+	if got := e.count(`SELECT COUNT(*) FROM scrobble WHERE import_job_id=?`, keep.ID); int64(got) != keep.Progress.Inserted {
+		t.Fatalf("the other import lost listens: %d of %d", got, keep.Progress.Inserted)
+	}
+	if _, err := e.m.store.Get(e.ctx, done.ID); err == nil {
+		t.Fatal("job still there")
+	}
+	if _, again := e.previewAndApply("listenbrainz.jsonl", fixture(t, "listenbrainz.jsonl"), ""); again.Progress.Inserted != done.Progress.Inserted {
+		t.Fatalf("re-import inserted %d, want %d", again.Progress.Inserted, done.Progress.Inserted)
+	}
+
+	code, j := e.upload("lastfm.csv", fixture(t, "lastfm.csv"), "")
+	e.wait(j.ID, StatusAwaiting)
+	if _, err := e.m.Undo(e.ctx, j.ID); !errors.Is(err, ErrState) || code != 201 {
+		t.Fatalf("undo of an unapplied job: %v", err)
+	}
+	if code, _ := e.post(fmt.Sprintf("/admin/imports/%d/undo", keep.ID)); code == 200 {
+		t.Fatalf("undo without step-up: %d", code)
 	}
 }

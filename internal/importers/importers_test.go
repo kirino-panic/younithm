@@ -309,6 +309,25 @@ func joinApple(t *testing.T, play, daily string) ([]Listen, []RowError, Result, 
 	return ls, es, res, st, err
 }
 
+// One play in Play Activity is a PLAY_START row (no duration, often a
+// different millisecond) plus a PLAY_END row; lyrics on screen add a
+// LYRIC_DISPLAY row. Only PLAY_END counts.
+func TestAppleMusicCountsOnlyPlayEnd(t *testing.T) {
+	in := "Song Name,Event Type,Event Start Timestamp,Play Duration Milliseconds,Media Type\n" +
+		"Song,PLAY_START,2025-06-24T20:28:59.900Z,,AUDIO\n" +
+		"Song,PLAY_END,2025-06-24T20:29:00.100Z,237581,AUDIO\n" +
+		"Song,LYRIC_DISPLAY,2025-06-24T20:29:05.000Z,90000,AUDIO\n" +
+		"Other,,2025-06-24T21:00:00Z,60000,AUDIO\n" // no event type: kept
+	ls, es, res, err := collect(t, AppleMusic{NoArtist: true}, strings.NewReader(in))
+	if err != nil || len(es) != 0 || len(ls) != 2 {
+		t.Fatalf("err=%v es=%v ls=%v", err, es, ls)
+	}
+	eq(t, ls[0].Title, "Song")
+	if ls[0].DurationPlayedMs != 237581 || res.Skipped != 2 {
+		t.Fatalf("kept %+v, skipped %d", ls[0], res.Skipped)
+	}
+}
+
 func TestAppleJoinFillsArtistAndCatalogIDFromDailyTracks(t *testing.T) {
 	ls, es, res, st, err := joinApple(t, "applemusic_play_activity.csv", "applemusic_daily_tracks.csv")
 	if err != nil || len(es) != 0 {

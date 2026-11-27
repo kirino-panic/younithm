@@ -258,6 +258,7 @@ export const endpoints = {
     return api.post<ImportJob>(`/api/v1/admin/imports/${id}/files`, fd);
   },
   cancelImport: (id: number) => api.post(`/api/v1/admin/imports/${id}/cancel`),
+  undoImport: (id: number) => api.post<{ removed: number }>(`/api/v1/admin/imports/${id}/undo`),
 
   secrets: () => api.get<{ secrets: SecretMeta[] }>("/api/v1/admin/secrets"),
   setSecret: (name: string, value: string) => api.put(`/api/v1/admin/secrets/${name}`, { value }),
