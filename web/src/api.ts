@@ -170,10 +170,11 @@ export interface ImportJob {
   preview?: {
     date_range?: { earliest?: string; latest?: string };
     counts?: { new?: number; duplicates?: number; skipped?: number; parsed?: number };
+    out_of_range?: number;
     sample?: { played_at: string; artist: string; title: string; album?: string; outcome: string }[];
   };
   error?: string; missing?: string[]; created_at: string; finished_at?: string;
-  options?: { debug_limit?: number; fuzzy_consent?: boolean };
+  options?: { debug_limit?: number; fuzzy_consent?: boolean; from?: string; to?: string };
 }
 
 export interface SecretMeta { name: string; set: boolean; hint?: string; updated_at?: string }
@@ -236,12 +237,15 @@ export const endpoints = {
 
   imports: () => api.get<{ jobs: ImportJob[] }>("/api/v1/admin/imports"),
   importJob: (id: number) => api.get<ImportJob>(`/api/v1/admin/imports/${id}`),
-  upload: (files: File[], opts: { debugLimit?: number; fuzzyConsent?: boolean } = {}) => {
+  upload: (files: File[], opts: { debugLimit?: number; fuzzyConsent?: boolean; from?: string; to?: string } = {}) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("file", f));
     const q = new URLSearchParams();
     if (opts.debugLimit) q.set("debug_limit", String(opts.debugLimit));
     if (opts.fuzzyConsent) q.set("fuzzy_consent", "true");
+    if (opts.from) q.set("from", opts.from);
+    if (opts.to) q.set("to", opts.to);
+    if (opts.from || opts.to) q.set("tz", viewerTimeZone());
     const qs = q.toString();
     return api.post<ImportJob>(`/api/v1/admin/imports${qs ? `?${qs}` : ""}`, fd);
   },

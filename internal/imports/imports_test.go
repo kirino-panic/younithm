@@ -999,3 +999,43 @@ func TestConfirmWhenReady(t *testing.T) {
 		t.Fatal("apple job applied nothing")
 	}
 }
+
+// From/To keep only listens played on or between those days (UTC, inclusive).
+func TestDateRangeLeavesOutListensOutsideIt(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("uts,utc_time,artist,artist_mbid,album,album_mbid,track,track_mbid\n")
+	for i, day := range []string{"2019-12-31T23:59:59Z", "2020-01-01T00:00:00Z", "2020-06-15T12:00:00Z", "2020-12-31T23:59:59Z", "2021-01-01T00:00:00Z"} {
+		ts, _ := time.Parse(time.RFC3339, day)
+		fmt.Fprintf(&b, "%d,\"\",Artist %d,,,,Song %d,\n", ts.Unix(), i, i)
+	}
+	e := newEnv(t, Options{})
+	prev, done := e.previewAndApply("lastfm.csv", []byte(b.String()), "?from=2020-01-01&to=2020-12-31")
+	s := parseSummary(t, prev.Preview)
+	if s.Counts.New != 3 || s.OutOfRange != 2 || done.Progress.Inserted != 3 {
+		t.Fatalf("new %d, out of range %d, inserted %d; want 3, 2, 3", s.Counts.New, s.OutOfRange, done.Progress.Inserted)
+	}
+	if prev.Options.From != "2020-01-01" || prev.Options.To != "2020-12-31" {
+		t.Fatalf("options not kept: %+v", prev.Options)
+	}
+	if n := e.count(`SELECT COUNT(*) FROM scrobble WHERE played_at < '2020-01-01' OR played_at >= '2021-01-01'`); n != 0 {
+		t.Fatalf("%d listens outside the range were stored", n)
+	}
+
+	_, prev = e.previewAndApply("lastfm.csv", []byte(b.String()), "?from=2020-06-15")
+	if s := parseSummary(t, prev.Preview); s.OutOfRange != 2 {
+		t.Fatalf("open-ended to: out of range %d, want 2", s.OutOfRange)
+	}
+
+	// Days are the uploader's: 2019-12-31 23:59:59 UTC is still 2019 in UTC
+	// but already 2020-01-01 in Tokyo.
+	_, prev = e.previewAndApply("lastfm.csv", []byte(b.String()), "?from=2020-01-01&to=2020-01-01&tz=Asia/Tokyo")
+	if s := parseSummary(t, prev.Preview); s.OutOfRange != 3 {
+		t.Fatalf("Tokyo: out of range %d, want 3", s.OutOfRange)
+	}
+
+	for _, q := range []string{"?from=2020-13-01", "?to=yesterday", "?from=2021-01-01&to=2020-01-01", "?from=2020-01-01&tz=Nowhere/Land"} {
+		if code, _ := e.upload("lastfm.csv", []byte(b.String()), q); code != 400 {
+			t.Fatalf("%s: code %d, want 400", q, code)
+		}
+	}
+}

@@ -29,6 +29,7 @@ running → error or restart → failed → retry → queued
 - **Confirm applies exactly what was previewed.** Options are frozen on the job, and the file is re-hashed before applying. The database may change in between (a live scrobble arrives), so the result includes `drift`: preview versus applied counts.
 - **Apply is resumable.** Rows are written in batches of 500 and carry `scrobble.import_job_id`. After a restart, a running job is marked `failed`; retry picks up where it stopped.
 - **Confirm early.** `confirm?when_ready=1` accepts a job that is still waiting for files or being previewed; it applies as soon as the preview finishes. The welcome flow uses this.
+- **Date range.** `from` and `to` (YYYY-MM-DD, both inclusive, either optional) keep only listens played on or between those days, in the uploader's time zone (`tz`, UTC when absent). Listens outside are left out before dedupe and counted in the preview's `out_of_range`; the file's own span stays in `date_range`.
 - Uploads are deleted when a job is done or cancelled. One worker runs one job at a time.
 
 ## Apple Music
@@ -71,7 +72,7 @@ Under `/api/v1/admin`, admin session required. Writes need the CSRF header; conf
 
 | Endpoint | Does |
 |---|---|
-| `POST /imports` | Multipart `file`. Options: `format`, `dedupe_window`, `spotify_min_ms`, `fuzzy_consent`, `debug_limit` |
+| `POST /imports` | Multipart `file`. Options: `format`, `dedupe_window`, `spotify_min_ms`, `fuzzy_consent`, `debug_limit`, `from`, `to`, `tz` |
 | `POST /imports/check` | `{"head": base64}` or `{"entries": [...]}`: detect format (and Apple file role) without storing anything |
 | `GET /imports` | Jobs, supported formats, required files, defaults |
 | `GET /imports/{id}` | One job with progress, preview, result and error |

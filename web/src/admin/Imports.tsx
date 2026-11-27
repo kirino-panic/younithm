@@ -15,6 +15,9 @@ export function Imports() {
   const [err, setErr] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const [fuzzy, setFuzzy] = useFuzzyPref();
+  // Per import, not remembered: a range left over from the last file would
+  // quietly drop listens from the next one.
+  const [range, setRange] = useState<DateRange>(NO_RANGE);
 
   // Keep the open job fresh while it is parsing or importing.
   useEffect(() => {
@@ -33,7 +36,7 @@ export function Imports() {
     setErr("");
     try {
       const [first, ...rest] = files;
-      let job = await endpoints.upload([first], { fuzzyConsent: fuzzy });
+      let job = await endpoints.upload([first], { fuzzyConsent: fuzzy, ...(range.on ? { from: range.from, to: range.to } : {}) });
       for (const f of rest) {
         const fd = new FormData();
         fd.append("file", f);
@@ -41,6 +44,7 @@ export function Imports() {
       }
       setCurrent(job);
       setPicked(null);
+      setRange(NO_RANGE);
       list.reload();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Upload failed.");
@@ -82,7 +86,7 @@ export function Imports() {
                 <ActionRow onClick={() => input.current?.click()}>Choose other files</ActionRow>
               </Group>
             ) : <Group><ActionRow onClick={() => input.current?.click()}><Upload size={16} />Upload files</ActionRow></Group>}
-            <ImportOptions fuzzy={fuzzy} setFuzzy={setFuzzy} ready={!!picked} onStart={() => picked && upload(picked)} onCancel={() => setPicked(null)} />
+            <ImportOptions fuzzy={fuzzy} setFuzzy={setFuzzy} range={range} setRange={setRange} ready={!!picked} onStart={() => picked && upload(picked)} onCancel={() => setPicked(null)} />
           </>}
         <Matching />
         <Group title="Past imports">
@@ -90,7 +94,7 @@ export function Imports() {
             <button key={j.id} className="row-setting row-link" onClick={() => endpoints.importJob(j.id).then(setCurrent)}>
               <span className="list-main">
                 <span className="list-title truncate">{j.filename}</span>
-                <span className="list-sub">{[j.format, `${fmtNum(j.progress?.inserted || j.progress?.new || 0)} listens`, j.options?.debug_limit ? `newest ${fmtNum(j.options.debug_limit)}` : "", fmtDate(j.created_at)].filter(Boolean).join(" · ")}</span>
+                <span className="list-sub">{[j.format, `${fmtNum(j.progress?.inserted || j.progress?.new || 0)} listens`, j.options?.debug_limit ? `newest ${fmtNum(j.options.debug_limit)}` : "", rangeText(j.options), fmtDate(j.created_at)].filter(Boolean).join(" · ")}</span>
               </span>
               <JobStatus job={j} />
             </button>
@@ -135,9 +139,23 @@ export function useFuzzyPref() {
 // Options for the import about to start. Each is remembered for the next one.
 // Labels and (i) text are onboarding's, so an edit there shows here too.
 // Start and Cancel stay greyed out until there's a file to import.
-function ImportOptions({ fuzzy, setFuzzy, ready, onStart, onCancel }: {
-  fuzzy: boolean; setFuzzy: (v: boolean) => void; ready: boolean; onStart: () => void; onCancel: () => void;
+// on: "Custom date range" is switched on; the dates are sent only then.
+type DateRange = { on: boolean; from: string; to: string };
+const NO_RANGE: DateRange = { on: false, from: "", to: "" };
+
+// "2020-01-01 – 2020-12-31", "from 2020-01-01", "until 2020-12-31", or "".
+function rangeText(o?: { from?: string; to?: string }) {
+  if (o?.from && o.to) return `${o.from} – ${o.to}`;
+  if (o?.from) return `from ${o.from}`;
+  if (o?.to) return `until ${o.to}`;
+  return "";
+}
+
+function ImportOptions({ fuzzy, setFuzzy, range, setRange, ready, onStart, onCancel }: {
+  fuzzy: boolean; setFuzzy: (v: boolean) => void; range: DateRange; setRange: (r: DateRange) => void;
+  ready: boolean; onStart: () => void; onCancel: () => void;
 }) {
+  const backwards = range.on && !!range.from && !!range.to && range.to < range.from;
   const hpLabel = t("history.highPrecision");
   const ln = t("history.linkNames");
   const matching = useData(() => endpoints.matching(), []);
@@ -150,7 +168,18 @@ function ImportOptions({ fuzzy, setFuzzy, ready, onStart, onCancel }: {
       <SettingRow label={<>{ln}<InfoTip label={`About ${ln}`} text={t("history.linkNamesInfo")} /></>}>
         <Switch label={ln} checked={fuzzy} onChange={setFuzzy} />
       </SettingRow>
-      <ActionRow disabled={!ready} onClick={onStart}>Start import</ActionRow>
+      <SettingRow label="Custom date range">
+        <Switch label="Custom date range" checked={range.on} onChange={(on) => setRange({ ...range, on })} />
+      </SettingRow>
+      {range.on && <>
+      <SettingRow label="From">
+        <input className="input" type="date" aria-label="From" style={{ width: "auto" }} value={range.from} max={range.to || undefined} onChange={(e) => setRange({ ...range, from: e.target.value })} />
+      </SettingRow>
+      <SettingRow label="To">
+        <input className="input" type="date" aria-label="To" aria-invalid={backwards || undefined} style={{ width: "auto" }} value={range.to} min={range.from || undefined} onChange={(e) => setRange({ ...range, to: e.target.value })} />
+      </SettingRow>
+      </>}
+      <ActionRow disabled={!ready || backwards} onClick={onStart}>Start import</ActionRow>
       <ActionRow danger disabled={!ready} onClick={onCancel}>Cancel</ActionRow>
     </Group>
   );
@@ -180,6 +209,7 @@ function JobGroup({ job, onConfirm, onCancel, onClose }: { job: ImportJob; onCon
           <SettingRow label="New listens">{n(p.counts?.new ?? job.progress.new)}</SettingRow>
           <SettingRow label="Duplicates">{n(p.counts?.duplicates ?? job.progress.duplicates)}</SettingRow>
           <SettingRow label="Skipped">{n(p.counts?.skipped ?? job.progress.skipped)}</SettingRow>
+          {(job.options?.from || job.options?.to) && <SettingRow label="Outside date range">{n(p.out_of_range)}</SettingRow>}
           <SettingRow label="Dates"><span className="muted num">{p.date_range?.earliest?.slice(0, 10) || "–"} – {p.date_range?.latest?.slice(0, 10) || "–"}</span></SettingRow>
           {p.sample?.slice(0, 5).map((r, i) => (
             <div key={i} className="row-setting">

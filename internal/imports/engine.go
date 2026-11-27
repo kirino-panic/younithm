@@ -72,6 +72,8 @@ type Summary struct {
 	} `json:"dedupe"`
 	// DebugLimit is set when only the newest N listens of the file were used.
 	DebugLimit int `json:"debug_limit,omitempty"`
+	// OutOfRange counts listens left out by the job's From/To dates.
+	OutOfRange int64 `json:"out_of_range,omitempty"`
 	// Apple is what the Play Activity / Daily Tracks join did (Apple Music only).
 	Apple        *importers.AppleJoinStats `json:"apple,omitempty"`
 	Sample       []SampleRow               `json:"sample"`
@@ -364,7 +366,20 @@ func (e *pass) rollback() {
 // run streams the stored upload through the pass.
 func (e *pass) run(ctx context.Context) (Summary, Progress, error) {
 	defer e.rollback()
-	emit := func(l importers.Listen) error { return e.handle(ctx, l) }
+	within := e.job.Options.dateFilter()
+	keepDate := func(l importers.Listen) bool {
+		if within(l.PlayedAt) {
+			return true
+		}
+		e.sum.OutOfRange++
+		return false
+	}
+	emit := func(l importers.Listen) error {
+		if !keepDate(l) {
+			return nil
+		}
+		return e.handle(ctx, l)
+	}
 	var keep *newestN
 	n := e.job.Options.DebugLimit
 	if n <= 0 {
@@ -373,7 +388,12 @@ func (e *pass) run(ctx context.Context) (Summary, Progress, error) {
 	if n > 0 { // debug only: newest n listens
 		e.sum.DebugLimit = n
 		keep = &newestN{n: n}
-		emit = func(l importers.Listen) error { keep.add(l); return nil }
+		emit = func(l importers.Listen) error {
+			if keepDate(l) {
+				keep.add(l)
+			}
+			return nil
+		}
 	}
 	onRowErr := func(re importers.RowError) {
 		e.errs++

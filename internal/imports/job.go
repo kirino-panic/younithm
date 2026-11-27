@@ -101,6 +101,45 @@ type JobOptions struct {
 	// DebugLimit (debug only): process just the N most recent listens of the
 	// file by played-at time. 0 = off (then YOUNITHM_DEBUG_IMPORT_LIMIT applies).
 	DebugLimit int `json:"debug_limit,omitempty"`
+	// From and To (YYYY-MM-DD, both inclusive) keep only the listens played
+	// on or between those days in time zone TZ (an IANA name, the uploader's
+	// browser zone; UTC when empty). The rest are left out and counted.
+	// Either may be empty for an open end.
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+	TZ   string `json:"tz,omitempty"`
+}
+
+const dayLayout = "2006-01-02"
+
+// parseDay reads a YYYY-MM-DD option as the start of that day in loc ("" = unset).
+func parseDay(v string, loc *time.Location) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation(dayLayout, v, loc)
+}
+
+// location is the zone From and To are read in.
+func (o JobOptions) location() *time.Location {
+	if loc, err := time.LoadLocation(o.TZ); o.TZ != "" && err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// dateFilter returns a test for whether a listen played at t is inside
+// From..To. Options are validated at upload; an unreadable one is ignored.
+func (o JobOptions) dateFilter() func(time.Time) bool {
+	loc := o.location()
+	from, _ := parseDay(o.From, loc)
+	to, _ := parseDay(o.To, loc)
+	if !to.IsZero() {
+		to = to.AddDate(0, 0, 1) // inclusive: up to the end of that day
+	}
+	return func(t time.Time) bool {
+		return (from.IsZero() || !t.Before(from)) && (to.IsZero() || t.Before(to))
+	}
 }
 
 // Window returns the dedupe tolerance.

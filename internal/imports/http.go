@@ -35,7 +35,7 @@ func apiErr(w http.ResponseWriter, status int, code, msg string) {
 // Mount registers the admin import endpoints under /admin/imports of r
 // (normally the /api/v1 group). Everything needs an admin session.
 //
-//	POST   /admin/imports              multipart "file"; ?format= ?dedupe_window= ?spotify_min_ms= ?fuzzy_consent= ?debug_limit=
+//	POST   /admin/imports              multipart "file"; ?format= ?dedupe_window= ?spotify_min_ms= ?fuzzy_consent= ?debug_limit= ?from= ?to= ?tz=
 //	POST   /admin/imports/check        {"head": base64} or {"entries": [...]}: format (and Apple file roles), nothing stored
 //	POST   /admin/imports/{id}/files   another file for an import that is awaiting_files (Apple Music: both CSVs)
 //	GET    /admin/imports              jobs, supported formats, defaults
@@ -339,6 +339,30 @@ func (m *Manager) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		opts.DebugLimit = n
+	}
+	for _, d := range []struct {
+		name string
+		dst  *string
+	}{{"from", &opts.From}, {"to", &opts.To}} {
+		v := strings.TrimSpace(fields[d.name])
+		if _, err := parseDay(v, time.UTC); err != nil {
+			apiErr(w, 400, "bad_date", d.name+" must be a date like 2020-01-31")
+			return
+		}
+		*d.dst = v
+	}
+	if opts.From != "" && opts.To != "" && opts.To < opts.From {
+		apiErr(w, 400, "bad_date", "to is before from")
+		return
+	}
+	if opts.From != "" || opts.To != "" {
+		if tz := strings.TrimSpace(fields["tz"]); tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil {
+				apiErr(w, 400, "bad_tz", "unknown time zone "+tz)
+				return
+			}
+			opts.TZ = tz
+		}
 	}
 	if opts.DebugLimit == 0 && m.opt.DebugLimit != nil {
 		opts.DebugLimit = m.opt.DebugLimit()
